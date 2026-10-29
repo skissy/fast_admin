@@ -302,7 +302,7 @@ cmd_image_export() {
   local tar_file="${dist}/backend-${tag}.tar.gz"
 
   echo "  → 构建镜像 ${image} ..."
-  (cd "${COMPOSE_DIR}" && IMAGE_TAG="${tag}" docker compose "${COMPOSE_ARGS[@]}" build backend)
+  (cd "${COMPOSE_DIR}" && BACKEND_IMAGE=fastapiadmin-backend IMAGE_TAG="${tag}" docker compose "${COMPOSE_ARGS[@]}" build backend)
 
   echo "  → 校验镜像架构（服务器需 linux/amd64）..."
   local arch

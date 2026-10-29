@@ -2,9 +2,21 @@
 
 一个基于 FastAPI 框架构建企业级后端架构解决方案，为前端 Vue3 管理系统提供完整的 API 服务支持。
 
-> **和仓库根目录文档的关系**：**一键前后端启动、演示账号、Docker 部署、新手导航、Mermaid 架构图与默认端口（5180 / 8001 等）** 请以仓库根目录 [**README.md**](../README.md) 为准；**本文档**侧重 `backend/` 目录结构、迁移命令与开发约定。
+> 默认端口、全栈启动和部署方式见仓库根目录 [README.md](../README.md)。本文档侧重后端结构、迁移与开发约定。GitHub Actions 和 GHCR 镜像发布见 [CI/CD 说明](../docs/ci-cd.md)。
 
-与 **`env/.env.dev.example`** 对齐时：**`SERVER_PORT=8001`**（本机 **`http://127.0.0.1:8001`**），**`ROOT_PATH=/api/v1`**，Swagger **`/docs`**；前端开发端口见 **`../frontend/.env.development.example`** 中的 **`VITE_APP_PORT=5180`**、`VITE_API_BASE_URL=http://127.0.0.1:8001`。
+默认配置来自 `env/.env.example`：后端端口 **6100**，Swagger 地址为
+`http://127.0.0.1:6100/api/v1/docs`；管理后台端口 **6110**，配置位于
+`frontend/web/env/`。生产配置模板为 `env/.env.prod.example`，必须填写随机 JWT 密钥。
+
+## 自动检查与容器交付
+
+GitHub Actions 使用 `.python-version` 和 `uv.lock` 安装依赖，依次执行 Ruff、Pyright、完整
+pytest，测试使用隔离的 SQLite 与内存缓存设施。真实 HTTP 回归也包含在测试中。
+检查通过后使用 GitHub 自动令牌向 `ghcr.io/skissy/fast_admin-backend` 发布后端镜像，无需 Docker Hub 账号。
+Compose 后端容器名为 `fast-backend`，由 `BACKEND_IMAGE` 和 `IMAGE_TAG` 选择镜像。
+
+上线前参考 [安全升级说明](docs/安全升级说明.md)；服务器更新镜像、数据库迁移及重建步骤见
+[Docker 部署说明](../docker/README.md)。
 
 ## 🚀 项目特性
 
@@ -106,7 +118,7 @@ module_*/
 
 2. 在 **`backend/` 目录下** 安装依赖：推荐 **`uv sync`**；或 `pip install -r requirements.txt`。
 
-3. **启动**：`uv run main.py run --env=dev`（或 `python main.py run --env=dev`）。设置 `ENVIRONMENT=dev` 环境变量后，系统自动加载 `env/.env` + `env/.env.dev`（后者覆盖前者）。**首次启动会自动初始化数据库表与基础数据**，一般**无需**先执行 `upgrade`。接口文档示例：`http://127.0.0.1:8001/docs`（端口见 `.env` 中 `SERVER_PORT`）。
+3. **启动**：`uv run main.py run --env=dev`（或 `python main.py run --env=dev`）。设置 `ENVIRONMENT=dev` 后，系统加载 `env/.env` 和可选的 `env/.env.dev`。**首次启动会自动初始化数据库表与基础数据**；升级已有数据库时仍应执行 Alembic 迁移。接口文档：`http://127.0.0.1:6100/api/v1/docs`。
 
 ### 配置加载顺序
 

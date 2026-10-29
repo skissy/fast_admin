@@ -1,0 +1,186 @@
+name: CI / GHCR
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      ENVIRONMENT: dev
+      TESTING: '1'
+      DATABASE_TYPE: sqlite
+      DATABASE_NAME: /tmp/fastadmin-ci
+      REDIS_ENABLE: 'False'
+      CAPTCHA_ENABLE: 'False'
+      SQL_DB_ENABLE: 'True'
+      CORS_ORIGIN_ENABLE: 'False'
+      IP_LOCATION_ENABLE: 'False'
+      LOGGER_LEVEL: ERROR
+      SECRET_KEY: ci-only-signing-key-never-use-in-production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install locked dependencies and project Python
+        run: uv sync --frozen
+      - name: Ruff
+        run: uv run --no-sync ruff check app tests main.py --no-fix
+      - name: Pyright
+        run: uv run --no-sync pyright
+      - name: Tests, including real HTTP regression
+        run: uv run --no-sync pytest tests -q --junitxml=reports/pytest.xml
+      - name: Test report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: backend-test-report
+          path: backend/reports/pytest.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  web:
+    name: Web build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend/web
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/web/pnpm-lock.yaml
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Prepare public build configuration
+        run: |
+          cp env/.env.example env/.env
+          cp env/.env.production.example env/.env.production
+      - name: Production build and TypeScript
+        run: pnpm build
+      - name: Unit tests
+        run: pnpm test
+      - name: Web build artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: web-dist-${{ github.sha }}
+          path: frontend/web/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  compose:
+    name: Compose and shell validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Prepare configuration fixtures
+        run: |
+          cp docker/.env.example docker/.env
+          cp backend/env/.env.prod.example backend/env/.env.prod
+          cp backend/env/.env.prod.example docker/env.prod
+      - name: Validate all four Compose combinations
+        working-directory: docker
+        run: |
+          docker compose -f docker-compose.yaml config --quiet
+          docker compose -f docker-compose.yaml -f docker-compose.dev.yaml config --quiet
+          docker compose -f docker-compose.backend.yaml config --quiet
+          docker compose -f docker-compose.backend.yaml -f docker-compose.local-deps.yaml config --quiet
+      - name: Validate deployment script
+        run: bash -n deploy.sh
+
+  image:
+    name: Build / publish backend image
+    needs: [backend, web, compose]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Select image and publication mode
+        id: publication
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-backend"
+          enabled=false
+          if [[ "$GITHUB_EVENT_NAME" != pull_request && ( "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/tags/v* ) ]]; then
+            enabled=true
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          echo "Image: $image; publish: $enabled" >> "$GITHUB_STEP_SUMMARY"
+      - name: Log in to GitHub Container Registry
+        if: steps.publication.outputs.enabled == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Image tags and labels
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ steps.publication.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,format=long
+            type=semver,pattern={{version}}
+      - name: Build and optionally publish
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: docker/backend/Dockerfile
+          platforms: linux/amd64
+          push: ${{ steps.publication.outputs.enabled == 'true' }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Delivery summary
+        env:
+          IMAGE: ${{ steps.publication.outputs.image }}
+          PUBLISHED: ${{ steps.publication.outputs.enabled }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "Image build succeeded. Published: $PUBLISHED"
+            echo "Image: $IMAGE"
+            echo "Digest: $DIGEST"
+            echo 'Deployment: set BACKEND_IMAGE and IMAGE_TAG in the server Compose .env, then pull and recreate the backend service as documented in docs/ci-cd.md.'
+          } >> "$GITHUB_STEP_SUMMARY"

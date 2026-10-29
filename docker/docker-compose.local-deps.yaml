@@ -28,7 +28,7 @@ services:
 
   # ==================== MySQL（本地依赖） ====================
   mysql:
-    container_name: backend-mysql
+    container_name: fast-backend-mysql
     image: mysql:8.0
     restart: unless-stopped
     platform: linux/amd64
@@ -52,7 +52,7 @@ services:
 
   # ==================== Redis（本地依赖） ====================
   redis:
-    container_name: backend-redis
+    container_name: fast-backend-redis
     image: redis:7-alpine
     restart: unless-stopped
     platform: linux/amd64

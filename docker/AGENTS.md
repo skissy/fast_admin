@@ -34,6 +34,19 @@ docker/
 
 方式 B 只有 Backend 一个服务，见 `docker-compose.backend.yaml`。
 
+容器名统一为 `fast-mysql`、`fast-redis`、`fast-backend`、`fast-nginx`、`fast-certbot`。
+仅后端的可选依赖为 `fast-backend-mysql`、`fast-backend-redis`。
+Compose 服务名保持不变，容器内 DNS 继续使用 `mysql` / `redis` / `backend`。
+
+## CI/CD 与镜像
+
+- `.github/workflows/ci-cd.yml` 执行检查，基于官方 Python 镜像构建并自动发布到 GHCR。
+- 使用 GitHub 自动提供的 `GITHUB_TOKEN`，仅镜像任务授予 `packages: write`，无需 Docker Hub 账号。
+- Compose 默认使用 `ghcr.io/skissy/fast_admin-backend:latest`，可用 `BACKEND_IMAGE` 与 `IMAGE_TAG` 覆盖。
+- 离线导出固定使用本地 `fastapiadmin-backend:<tag>`，服务器配置需对应。
+- 服务器使用 `docker compose pull backend` + `up -d --no-build` 更新。
+- 详细配置与标签规则见 [`docs/ci-cd.md`](../docs/ci-cd.md)。
+
 ## Production
 
 - **服务器**：47.100.136.197（阿里云 ECS）
@@ -43,7 +56,7 @@ docker/
 
 ## SSL Certificate
 
-- Let's Encrypt 证书（exp 2026-08-26）
+- Let's Encrypt 证书（有效期以服务器当前证书为准）
 - 续签 crontab：每周日 3 点
 - 使用 Docker 内 certbot 而非宿主机安装
 

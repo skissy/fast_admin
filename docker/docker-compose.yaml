@@ -14,7 +14,7 @@
 services:
   # ==================== 数据库服务 ====================
   mysql:
-    container_name: mysql
+    container_name: fast-mysql
     image: mysql:8.0
     restart: unless-stopped
     platform: linux/amd64
@@ -53,7 +53,7 @@ services:
 
   # ==================== Redis 服务 ====================
   redis:
-    container_name: redis
+    container_name: fast-redis
     image: redis:7-alpine
     restart: unless-stopped
     platform: linux/amd64
@@ -94,11 +94,11 @@ services:
 
   # ==================== 后端服务 ====================
   backend:
-    container_name: backend
+    container_name: fast-backend
     build:
       context: ../
       dockerfile: ./docker/backend/Dockerfile
-    image: fastapiadmin-backend:${IMAGE_TAG:-3.1.0}
+    image: ${BACKEND_IMAGE:-ghcr.io/skissy/fast_admin-backend}:${IMAGE_TAG:-latest}
     restart: unless-stopped
     platform: linux/amd64
     environment:
@@ -150,7 +150,7 @@ services:
 
   # ==================== Nginx 服务 ====================
   nginx:
-    container_name: nginx
+    container_name: fast-nginx
     image: nginx:1.25-alpine
     restart: unless-stopped
     platform: linux/amd64
@@ -191,7 +191,7 @@ services:
 
   # ==================== Certbot（Let's Encrypt 证书签发/续签） ====================
   certbot:
-    container_name: certbot
+    container_name: fast-certbot
     image: certbot/certbot:latest
     platform: linux/amd64
     profiles: ["manual"]  # 不随 docker compose up 自动启动

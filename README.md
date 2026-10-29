@@ -6,10 +6,11 @@
           <img src="https://img.shields.io/badge/Version-3.1.0-brightgreen" alt="Version">
           <img src="https://img.shields.io/badge/License-MIT-orange" alt="License">
           <img src="https://img.shields.io/badge/Python-≥3.14-blue">
-          <img src="https://img.shields.io/badge/NodeJS-≥20.0-blue">
+          <img src="https://img.shields.io/badge/NodeJS-≥22.12-blue">
           <img src="https://img.shields.io/badge/Flutter-3.44-blue">
           <img src="https://img.shields.io/badge/MySQL-≥8.0-blue">
           <img src="https://img.shields.io/badge/Redis-≥7.0-blue">
+          <a href="https://github.com/skissy/fast_admin/actions/workflows/ci-cd.yml"><img src="https://github.com/skissy/fast_admin/actions/workflows/ci-cd.yml/badge.svg" alt="CI / GHCR"></a>
      </p>
 </div>
 
@@ -17,7 +18,7 @@
 
 ## 📘 项目介绍
 
-**FastApiAdmin v3.0** 是一套**完全开源、高度模块化、三端统一**的现代化全栈开发平台模板。基于 FastAPI 后端 + Vue3 管理后台 + UniApp 小程序 + Flutter 移动端，提供从需求到上线的完整技术栈方案。
+**FastApiAdmin v3.1.0** 是一套**完全开源、高度模块化、三端统一**的现代化全栈开发平台模板。基于 FastAPI 后端 + Vue3 管理后台 + UniApp 小程序 + Flutter 移动端，提供从需求到上线的完整技术栈方案。
 
 > **设计初心**：以模块化、松耦合为核心，追求丰富的功能模块、简洁易用的接口、详尽的开发文档和便捷的维护方式。通过统一框架和组件，降低技术选型成本，遵循开发规范和设计模式，构建强大的代码分层模型。
 
@@ -123,7 +124,7 @@ fastapiadmin/
 | -------------- | --------------------------- | --------------------- |
 | 后端           | Python                      | ≥ 3.14（当前 3.14.7） |
 | 后端运行时     | uv / pip                    | 推荐 uv               |
-| Web 前端       | Node.js                     | ≥ 20.0                |
+| Web 前端       | Node.js                     | ≥ 22.12（CI 使用 24） |
 | Web 前端包管理 | pnpm                        | ≥ 9                   |
 | 移动端 SDK     | Flutter                     | ≥ 3.44                |
 | 数据库         | MySQL / PostgreSQL / SQLite | 见 backend/env 配置   |
@@ -162,6 +163,10 @@ API 文档：启动后访问 `http://127.0.0.1:6100/api/v1/docs`（Swagger）
 
 ```bash
 cd frontend/web
+
+# 准备公开构建配置
+cp env/.env.example env/.env
+cp env/.env.development.example env/.env.development
 
 # 安装依赖
 pnpm install
@@ -235,6 +240,26 @@ bash deploy.sh start
 ```
 
 详细说明与服务器 nginx 反代示例见 [`docker/README.md`](./docker/README.md)。
+
+---
+
+## 🔄 GitHub CI/CD 与镜像发布
+
+[GitHub Actions](https://github.com/skissy/fast_admin/actions/workflows/ci-cd.yml) 自动执行后端
+Ruff、Pyright、pytest，管理后台生产构建、TypeScript、Vitest，以及四种 Compose 配置检查。
+全部通过后构建后端镜像，并交付管理后台静态产物。
+
+后端基于官方 Python 镜像构建，使用 GitHub 自动令牌发布到 GHCR，**无需 Docker Hub 账号**。
+`main` 自动发布 `ghcr.io/skissy/fast_admin-backend:latest` 和 SHA 标签；`v*` 标签发布版本镜像。
+首次发布后将 GitHub Packages 中的镜像包设为 Public，服务器即可免登录拉取。
+
+服务器 `.env` 设置 `BACKEND_IMAGE=ghcr.io/skissy/fast_admin-backend` 和 `IMAGE_TAG`，再执行
+`docker compose pull backend`、数据库迁移和 `docker compose up -d --no-build --wait backend`。
+镜像上传后不会自动更新正在运行的容器，完整配置见 [CI/CD 说明](./docs/ci-cd.md)。
+
+Docker 容器名统一加 `fast-` 前缀，例如 `fast-backend`、`fast-mysql`、`fast-nginx`；
+Compose 命令继续使用服务名 `backend`、`mysql`、`nginx`。上线前请阅读
+[安全升级说明](./backend/docs/安全升级说明.md)，填写随机 JWT 密钥并处理旧会话和历史文件。
 
 ---
 

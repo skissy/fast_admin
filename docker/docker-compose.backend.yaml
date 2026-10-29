@@ -22,8 +22,8 @@
 services:
   # ==================== 后端服务 ====================
   backend:
-    container_name: backend
-    image: fastapiadmin-backend:${IMAGE_TAG:-3.1.0}
+    container_name: fast-backend
+    image: ${BACKEND_IMAGE:-ghcr.io/skissy/fast_admin-backend}:${IMAGE_TAG:-latest}
     restart: unless-stopped
     platform: linux/amd64
     environment:
