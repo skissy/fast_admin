@@ -47,7 +47,7 @@ cd docker
 cp .env.example .env
 cp ../backend/env/.env.prod.example ../backend/env/.env.prod
 # 填写数据库、Redis 密码和随机 SECRET_KEY
-# BACKEND_IMAGE=fastapiadmin-backend，IMAGE_TAG 保持本地版本标签
+# BACKEND_IMAGE=fast_admin-backend，IMAGE_TAG 保持本地版本标签
 bash ../deploy.sh
 bash ../deploy.sh status
 bash ../deploy.sh logs backend
@@ -139,8 +139,8 @@ bash deploy.sh db:migrate
 bash deploy.sh start
 ```
 
-离线导出固定使用本地 `fastapiadmin-backend:3.1.0`；服务器 `.env` 应设置
-`BACKEND_IMAGE=fastapiadmin-backend`、`IMAGE_TAG=3.1.0`，不依赖 GHCR 访问。
+离线导出固定使用本地 `fast_admin-backend:3.1.0`；服务器 `.env` 应设置
+`BACKEND_IMAGE=fast_admin-backend`、`IMAGE_TAG=3.1.0`，不依赖 GHCR 访问。
 加载镜像只更新本地镜像缓存，不会自动更新现有容器。
 
 ## 日常管理与配置验证

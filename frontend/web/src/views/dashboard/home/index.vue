@@ -55,16 +55,8 @@
                 仓库
               </div>
               <div class="mt-3 whitespace-nowrap">
-                <ElLink href="https://gitee.com/fastapiadmin/FastapiAdmin" target="_blank">
-                  <FaSvgIcon :icon="resolveIconForFaSvgIcon('gitee')" class="text-lg text-[#F76560]" />
-                </ElLink>
-                <ElDivider direction="vertical" />
-                <ElLink href="https://github.com/fastapiadmin/FastapiAdmin" target="_blank">
+                <ElLink href="https://github.com/skissy/fast_admin" target="_blank">
                   <FaSvgIcon :icon="resolveIconForFaSvgIcon('github')" class="text-lg text-[#4080FF]" />
-                </ElLink>
-                <ElDivider direction="vertical" />
-                <ElLink href="https://gitcode.com/qq_36002987/FastapiAdmin" target="_blank">
-                  <FaSvgIcon :icon="resolveIconForFaSvgIcon('gitcode')" class="text-lg text-[#FF9A2E]" />
                 </ElLink>
               </div>
             </div>
@@ -75,16 +67,8 @@
         <div class="w-full sm:hidden">
           <div class="flex justify-end space-x-4 overflow-x-auto">
             <!-- 仓库图标 -->
-            <ElLink href="https://gitee.com/fastapiadmin/FastapiAdmin" target="_blank">
-              <FaSvgIcon :icon="resolveIconForFaSvgIcon('gitee')" class="text-lg text-[#F76560]" />
-            </ElLink>
-            <ElDivider direction="vertical" />
-            <ElLink href="https://github.com/fastapiadmin/FastapiAdmin" target="_blank">
+            <ElLink href="https://github.com/skissy/fast_admin" target="_blank">
               <FaSvgIcon :icon="resolveIconForFaSvgIcon('github')" class="text-lg text-[#4080FF]" />
-            </ElLink>
-            <ElDivider direction="vertical" />
-            <ElLink href="https://gitcode.com/qq_36002987/FastapiAdmin" target="_blank">
-              <FaSvgIcon :icon="resolveIconForFaSvgIcon('gitcode')" class="text-lg text-[#FF9A2E]" />
             </ElLink>
           </div>
         </div>
@@ -263,7 +247,7 @@
               <ElLink
                 type="primary"
                 underline="never"
-                href="https://gitee.com/fastapiadmin/FastapiAdmin/releases"
+                href="https://github.com/skissy/fast_admin/releases"
                 target="_blank">
                 完整记录
                 <ElIcon class="link-icon">
@@ -690,7 +674,7 @@ const vesionList = ref<VersionItem[]>([
     title: 'v3.2.1',
     date: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     content: '优化性能，修复若干小bug。',
-    link: 'https://gitee.com/fastapiadmin/FastapiAdmin/releases',
+    link: 'https://github.com/skissy/fast_admin/releases',
     tag: '更新',
   },
   {
@@ -698,7 +682,7 @@ const vesionList = ref<VersionItem[]>([
     title: 'v3.2.0',
     date: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'),
     content: '新增用户行为分析功能。',
-    link: 'https://gitee.com/fastapiadmin/FastapiAdmin/releases',
+    link: 'https://github.com/skissy/fast_admin/releases',
     tag: '新功能',
   },
   {
@@ -706,7 +690,7 @@ const vesionList = ref<VersionItem[]>([
     title: 'v3.1.0',
     date: dayjs().subtract(3, 'day').format('YYYY-MM-DD HH:mm:ss'),
     content: '优化权限管理系统。',
-    link: 'https://gitee.com/fastapiadmin/FastapiAdmin/releases',
+    link: 'https://github.com/skissy/fast_admin/releases',
     tag: '优化',
   },
 ])

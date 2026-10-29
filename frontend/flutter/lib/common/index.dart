@@ -1,4 +1,4 @@
-/// FastapiAdmin 公共 barrel export
+/// fast_admin 公共 barrel export
 library;
 
 export 'theme/index.dart';

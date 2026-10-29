@@ -44,7 +44,7 @@ class App extends ConsumerWidget {
         return TDTheme(
           data: td,
           child: MaterialApp.router(
-            title: 'FastapiAdmin',
+            title: 'fast_admin',
             debugShowCheckedModeBanner: false,
             // i18n：语言状态 + 本地化代理（见 lib/provider/locale + lib/l10n/）
             locale: ref.watch(localeProvider),

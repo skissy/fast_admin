@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
 
-  "appName": "FastapiAdmin",
+  "appName": "fast_admin",
   "appSubtitle": "Mobile Management System",
 
   "commonSave": "Save",

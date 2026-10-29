@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "3.1.0"
-description = "fastapiadmin后端工程"
+description = "fast_admin后端工程"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

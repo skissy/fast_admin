@@ -1,4 +1,4 @@
-import 'package:fastapiadmin_mobile/common/permission/index.dart';
+import 'package:fast_admin_mobile/common/permission/index.dart';
 import 'package:flutter_permission_wizard/flutter_permission_wizard.dart';
 import 'package:flutter_test/flutter_test.dart';
 

@@ -1,7 +1,7 @@
 <!-- github 角标 -->
 <template>
   <a
-    href="https://github.com/fastapiadmin/FastapiAdmin"
+    href="https://github.com/skissy/fast_admin"
     target="_blank"
     class="github-corner"
     aria-label="View source on Github">

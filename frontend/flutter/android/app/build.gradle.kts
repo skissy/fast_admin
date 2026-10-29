@@ -35,13 +35,13 @@ if (envVersionFile.exists()) {
 }
 val envVersionName = envVersionProps.getProperty("APP_VERSION")?.trim()
 val envVersionCode = envVersionProps.getProperty("APP_BUILD")?.trim()?.toIntOrNull()
-// 产物名前缀：优先取 .env 的 APP_NAME，缺失/为空时回退 fastapiadmin
-val envAppName = envVersionProps.getProperty("APP_NAME")?.trim()?.takeIf { it.isNotEmpty() } ?: "fastapiadmin"
+// 产物名前缀：优先取 .env 的 APP_NAME，缺失/为空时回退 fast_admin
+val envAppName = envVersionProps.getProperty("APP_NAME")?.trim()?.takeIf { it.isNotEmpty() } ?: "fast_admin"
 
 // 产物文件名（对齐原生 Android applicationVariants.outputs.all 控制方式）：
 // 按 APP_NAME-<APP_VERSION>-<APP_BUILD> 原顺序拼接，末尾追加构建类型后缀
 // → <APP_NAME>-<APP_VERSION>-<APP_BUILD>-<BUILD_TYPE>.apk
-// 如 dev: FastapiAdmin-3.0.0-alpha-301-release.apk / -debug.apk；prod: FastapiAdmin-3.0.0-300-release.apk
+// 如 dev: fast_admin-3.0.0-alpha-301-release.apk / -debug.apk；prod: fast_admin-3.0.0-300-release.apk
 val apkFileBaseName = "${envAppName}-${envVersionName ?: "1.0.0"}-${envVersionCode ?: 1}"
 
 android {

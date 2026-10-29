@@ -120,7 +120,7 @@ module_xxx/
 
 ## Known Pitfalls
 
-- **FastApiAdmin 插件开发**参考 `fastapiadmin-plugin-engineering` skill
+- **fast_admin 插件开发**参考 `fastapiadmin-plugin-engineering` skill
 - 代码生成器生成的 CRUD 需要手动调整响应字段和权限配置
 - **`fastapi-limiter` 已升至 `0.2.0`**：`__init__` 改用 `pyrate-limiter` 可插拔桶后端，
   但 `__call__` 仍遍历 `app.routes` 读 `route.path`（FastAPI ≥ 0.141 下 `_IncludedRouter` 无此属性）。

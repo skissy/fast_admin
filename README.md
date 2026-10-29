@@ -1,5 +1,5 @@
 <div align="center">
-     <h1>FastApiAdmin <sup style="background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.4em; vertical-align: super; margin-left: 5px;">v3.1.0</sup></h1>
+     <h1>fast_admin <sup style="background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.4em; vertical-align: super; margin-left: 5px;">v3.1.0</sup></h1>
      <h3>现代化全栈快速开发平台模板</h3>
      <p>FastAPI + Vue3 + UniApp + Flutter — 一套框架，三端覆盖</p>
      <p align="center">
@@ -18,7 +18,10 @@
 
 ## 📘 项目介绍
 
-**FastApiAdmin v3.1.0** 是一套**完全开源、高度模块化、三端统一**的现代化全栈开发平台模板。基于 FastAPI 后端 + Vue3 管理后台 + UniApp 小程序 + Flutter 移动端，提供从需求到上线的完整技术栈方案。
+**fast_admin v3.1.0** 是一套**完全开源、高度模块化、三端统一**的现代化全栈开发平台模板。基于 FastAPI 后端 + Vue3 管理后台 + UniApp 小程序 + Flutter 移动端，提供从需求到上线的完整技术栈方案。
+
+项目名称统一为 `fast_admin`。已有部署的数据库名称和移动端安装标识兼容说明见
+[项目名称与升级兼容](./docs/project-name.md)。
 
 > **设计初心**：以模块化、松耦合为核心，追求丰富的功能模块、简洁易用的接口、详尽的开发文档和便捷的维护方式。通过统一框架和组件，降低技术选型成本，遵循开发规范和设计模式，构建强大的代码分层模型。
 
@@ -49,7 +52,7 @@
 ## 📦 工程结构
 
 ```
-fastapiadmin/
+fast_admin/
 ├── backend/                 → 后端（FastAPI + SQLAlchemy + MySQL/PostgreSQL/SQLite）
 │   ├── app/
 │   │   ├── plugin/          → 业务插件（module_*，全部业务模块所在）
@@ -148,10 +151,10 @@ uv sync
 source .venv/bin/activate
 
 # 确保 MySQL 在运行，然后创建数据库
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS fastapiadmin DEFAULT CHARACTER SET utf8mb4;"
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS fast_admin DEFAULT CHARACTER SET utf8mb4;"
 
 # 初始化数据库（导入 DDL 初始化文件；PostgreSQL 用 sql/postgres/ 下同名文件）
-mysql -u root -p fastapiadmin < sql/mysql/fastapiadmin_ddl.sql
+mysql -u root -p fast_admin < sql/mysql/fast_admin_ddl.sql
 
 # 启动开发服务（首次启动也会自动建表并写入种子数据）
 python main.py run --env=dev

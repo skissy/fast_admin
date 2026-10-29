@@ -112,7 +112,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 SizedBox(height: 16.h),
                 Center(
                   child: Text(
-                    'FastapiAdmin',
+                    'fast_admin',
                     style: TextStyle(
                       fontSize: 24.sp,
                       fontWeight: FontWeight.w700,

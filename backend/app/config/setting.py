@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ================================================= #
     DEBUG: bool = True
     """调试模式开关"""
-    TITLE: str = "🎉 FastapiAdmin 🎉 "
+    TITLE: str = "🎉 fast_admin 🎉 "
     """Swagger 文档标题"""
     VERSION: str = "0.1.0"
     """API 版本号"""
@@ -356,7 +356,7 @@ class Settings(BaseSettings):
     # ================================================= #
     # ******************* 请求限制 ****************** #
     # ================================================= #
-    REQUEST_LIMITER_REDIS_PREFIX: str = "fastapiadmin:request_limiter:"
+    REQUEST_LIMITER_REDIS_PREFIX: str = "fast_admin:request_limiter:"
     """请求限制器 Redis 键前缀"""
 
     # ================================================= #
