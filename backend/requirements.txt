@@ -114,7 +114,7 @@ fastapi==0.141.1
     #   backend (pyproject.toml)
     #   fastapi-limiter
     #   prefect
-fastapi-limiter==0.1.6
+fastapi-limiter==0.2.0
     # via backend (pyproject.toml)
 fastembed==0.8.0
     # via backend (pyproject.toml)
@@ -309,6 +309,10 @@ pyjwt==2.14.0
     # via backend (pyproject.toml)
 pymysql==1.2.0
     # via backend (pyproject.toml)
+pyrate-limiter==4.5.0
+    # via
+    #   backend (pyproject.toml)
+    #   fastapi-limiter
 python-dateutil==2.9.0.post0
     # via
     #   dateparser
