@@ -54,6 +54,8 @@ bash ../deploy.sh logs backend
 ```
 
 脚本构建镜像并管理证书，实际域名和邮箱在 `deploy.sh` 配置。
+依赖构建默认使用官方 PyPI；需要切换公共镜像源时可执行
+`docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple backend`。
 
 ### 从 GitHub GHCR 拉取
 

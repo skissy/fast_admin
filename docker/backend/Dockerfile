@@ -10,12 +10,15 @@ FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
+# GitHub 托管 runner 默认使用官方 PyPI；本地可通过 build arg 选择公共镜像源。
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
 # 依赖清单先拷贝：改业务代码时这一层仍命中缓存
 COPY ./backend/requirements.txt .
 
 # 安装依赖到隔离前缀，运行阶段只拷贝产物
 RUN pip install --no-cache-dir --prefix=/install \
-    -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    --timeout 60 --retries 3 -r requirements.txt --index-url "${PIP_INDEX_URL}"
 
 # ---- 运行阶段 ----
 FROM python:3.14-slim

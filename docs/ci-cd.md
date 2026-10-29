@@ -21,6 +21,7 @@
 MySQL、Redis、Nginx、Certbot 使用官方镜像。后端包含本项目代码，由工作流基于官方
 `python:3.14-slim` 构建，使用 GitHub 自动提供的 `GITHUB_TOKEN` 发布到 GHCR。
 不需要注册 Docker Hub，也不需要配置 `DOCKERHUB_TOKEN`、SSH 密钥或额外发布令牌。
+镜像构建默认从官方 PyPI 安装 Python 依赖，避免将某一地区的公共镜像源固定到 CI 中。
 
 镜像地址按 GitHub 仓库自动生成：`ghcr.io/<owner>/<repository>-backend`，统一转成小写。
 当前仓库是 **`ghcr.io/skissy/fast_admin-backend`**。
