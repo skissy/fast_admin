@@ -148,13 +148,14 @@ def test_sm2_ciphertext_is_c1c3c2_without_asn1() -> None:
     """SM2 密文必须为裸 C1C3C2（64 + 32 + len），不得含 ASN.1 包装。
 
     前端 ``sm-crypto`` / ``gm_crypto`` 依赖此格式，若底层库改用
-    ``C1C3C2_ASN1``（首字节 0x30）则前端全部解密失败。
+    ``C1C3C2_ASN1`` 则前端全部解密失败。裸密文的 x 坐标也可能以
+    ``0x30`` 开头，必须通过完整长度与解密结果判断，不能只看首字节。
     """
     plaintext = GOLDEN_SM2_MSG.encode("utf-8")
     ciphertext = Sm2Cipher.encrypt(GOLDEN_SM2_PUB, plaintext)
 
     assert len(ciphertext) == 64 + 32 + len(plaintext)
-    assert ciphertext[0] != 0x30, "首字节为 0x30 说明密文被 ASN.1 包装"
+    assert Sm2Cipher.decrypt(GOLDEN_SM2_PRIV, ciphertext) == plaintext
 
 
 def test_sm2_signature_is_raw_rs_without_asn1() -> None:
