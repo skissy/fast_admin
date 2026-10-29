@@ -9,7 +9,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,6 +28,10 @@ COMPOSE_DEV = DOCKER_DIR / "docker-compose.dev.yaml"
 COMPOSE_BACKEND = DOCKER_DIR / "docker-compose.backend.yaml"
 COMPOSE_LOCAL_DEPS = DOCKER_DIR / "docker-compose.local-deps.yaml"
 NGINX_CONF = DOCKER_DIR / "nginx" / "nginx.conf"
+NGINX_HTTP = DOCKER_DIR / "nginx" / "nginx.http.conf"
+NGINX_COMMON = DOCKER_DIR / "nginx" / "common.conf"
+NGINX_LOCATIONS = DOCKER_DIR / "nginx" / "locations.conf"
+NGINX_SELECT = DOCKER_DIR / "nginx" / "40-select-config.sh"
 DOCKERFILE = DOCKER_DIR / "backend" / "Dockerfile"
 DOCKERIGNORE = REPO_ROOT / ".dockerignore"
 DEPLOY_SH = REPO_ROOT / "deploy.sh"
@@ -37,6 +44,10 @@ DEPLOYMENT_FILES = (
     COMPOSE_BACKEND,
     COMPOSE_LOCAL_DEPS,
     NGINX_CONF,
+    NGINX_HTTP,
+    NGINX_COMMON,
+    NGINX_LOCATIONS,
+    NGINX_SELECT,
     DOCKERFILE,
     DOCKERIGNORE,
     DEPLOY_SH,
@@ -123,10 +134,82 @@ def test_backend_healthcheck_waits_for_startup_and_checks_health_route(path: Pat
 
 
 def test_nginx_proxies_to_container_port() -> None:
-    """nginx 必须转发到容器实际监听的端口（通过 upstream 声明）。"""
-    text = _text(NGINX_CONF)
-    assert f"server backend:{CONTAINER_PORT}" in text  # upstream server 声明
-    assert "proxy_pass http://backend_upstream;" in text  # 通过 upstream 转发
+    """HTTP 和 HTTPS 共用路由，均转发到后端容器实际监听的端口。"""
+    assert f"server backend:{CONTAINER_PORT}" in _text(NGINX_COMMON)
+    assert "proxy_pass http://backend_upstream;" in _text(NGINX_LOCATIONS)
+    for path in (NGINX_CONF, NGINX_HTTP):
+        content = _text(path)
+        assert "include /etc/nginx/fast-admin/common.conf;" in content
+        assert "include /etc/nginx/fast-admin/locations.conf;" in content
+        assert "location /.well-known/acme-challenge/" in content
+
+
+@pytest.mark.parametrize(
+    ("mode", "certificates", "expected"),
+    [
+        ("auto", (), "http"),
+        ("auto", ("fullchain.pem", "privkey.pem", "chain.pem"), "https"),
+        ("auto", ("fullchain.pem", "privkey.pem"), "http"),
+        ("http", ("fullchain.pem", "privkey.pem", "chain.pem"), "http"),
+        ("https", ("fullchain.pem", "privkey.pem", "chain.pem"), "https"),
+        ("https", (), None),
+        ("invalid", (), None),
+    ],
+)
+def test_nginx_selects_config_for_mode_and_certificates(
+    tmp_path: Path, mode: str, certificates: tuple[str, ...], expected: str | None
+) -> None:
+    """执行入口脚本，覆盖无证书、完整/缺失证书、固定模式及非法配置。"""
+    shell = shutil.which("sh")
+    if shell is None and (git := shutil.which("git")):
+        git_shell = Path(git).parent.parent / "bin" / "sh.exe"
+        if git_shell.is_file():
+            shell = str(git_shell)
+    if shell is None:
+        pytest.skip("需要 POSIX sh（Windows 可使用 Git for Windows）")
+
+    nginx_dir = tmp_path / "nginx"
+    config_dir = nginx_dir / "fast-admin"
+    config_dir.mkdir(parents=True)
+    cert_dir = tmp_path / "letsencrypt" / "live" / "service.xxcdjl.xyz"
+    cert_dir.mkdir(parents=True)
+    for name in certificates:
+        (cert_dir / name).write_text("test certificate", encoding="utf-8")
+    for name, source in (("https", NGINX_CONF), ("http", NGINX_HTTP)):
+        (config_dir / f"nginx.{name}.conf").write_text(_text(source), encoding="utf-8")
+
+    # 用临时目录替代容器挂载点，实际执行原始脚本的分支和配置复制逻辑。
+    script = tmp_path / "select-config.sh"
+    script.write_text(
+        _text(NGINX_SELECT)
+        .replace("/etc/nginx", nginx_dir.as_posix())
+        .replace("/etc/letsencrypt", (tmp_path / "letsencrypt").as_posix()),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = subprocess.run(
+        [shell, script.as_posix()],
+        env={**os.environ, "NGINX_MODE": mode},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    target = nginx_dir / "nginx.conf"
+    if expected is None:
+        assert result.returncode != 0
+        assert not target.exists()
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert _text(target) == _text(config_dir / f"nginx.{expected}.conf")
+
+
+def test_compose_mounts_nginx_startup_selector() -> None:
+    """选择脚本必须接入官方入口，生成的主配置不能被只读挂载覆盖。"""
+    content = _yaml_only(_text(COMPOSE_FULL))
+    assert 'NGINX_MODE: "${NGINX_MODE:-auto}"' in content
+    assert "./nginx/40-select-config.sh:/docker-entrypoint.d/40-select-config.sh:ro" in content
+    assert ":/etc/nginx/nginx.conf:ro" not in content
+    assert "ssl_certificate" not in _text(NGINX_HTTP)
 
 
 def test_dev_override_only_adds_source_mount() -> None:

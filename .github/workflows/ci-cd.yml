@@ -118,7 +118,27 @@ jobs:
           docker compose -f docker-compose.backend.yaml config --quiet
           docker compose -f docker-compose.backend.yaml -f docker-compose.local-deps.yaml config --quiet
       - name: Validate deployment script
-        run: bash -n deploy.sh
+        run: |
+          bash -n deploy.sh
+          sh -n docker/nginx/40-select-config.sh
+      - name: Validate Nginx HTTP and HTTPS startup
+        run: |
+          nginx_args=(--rm --add-host backend:127.0.0.1
+            -v "$PWD/docker/nginx/nginx.conf:/etc/nginx/fast-admin/nginx.https.conf:ro"
+            -v "$PWD/docker/nginx/nginx.http.conf:/etc/nginx/fast-admin/nginx.http.conf:ro"
+            -v "$PWD/docker/nginx/common.conf:/etc/nginx/fast-admin/common.conf:ro"
+            -v "$PWD/docker/nginx/locations.conf:/etc/nginx/fast-admin/locations.conf:ro"
+            -v "$PWD/docker/nginx/40-select-config.sh:/docker-entrypoint.d/40-select-config.sh:ro")
+          docker run "${nginx_args[@]}" nginx:1.25-alpine nginx -T > "$RUNNER_TEMP/nginx-http.conf"
+          grep -q 'server backend:6100;' "$RUNNER_TEMP/nginx-http.conf"
+          cert_dir="$(mktemp -d)"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=service.xxcdjl.xyz \
+            -keyout "$cert_dir/privkey.pem" -out "$cert_dir/fullchain.pem"
+          cp "$cert_dir/fullchain.pem" "$cert_dir/chain.pem"
+          docker run "${nginx_args[@]}" -e NGINX_MODE=https \
+            -v "$cert_dir:/etc/letsencrypt/live/service.xxcdjl.xyz:ro" \
+            nginx:1.25-alpine nginx -T > "$RUNNER_TEMP/nginx-https.conf"
+          grep -q 'listen 443 ssl;' "$RUNNER_TEMP/nginx-https.conf"
 
   image:
     name: Build / publish backend image

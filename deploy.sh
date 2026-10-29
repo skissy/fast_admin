@@ -162,12 +162,10 @@ cmd_deploy() {
   echo "   部署完成！"
   echo "========================================="
   echo ""
-  echo "访问地址:"
-  echo "   后端 API:      https://${CERT_DOMAIN}/api/v1"
-  echo "   后端 API 文档:  https://${CERT_DOMAIN}/api/v1/docs"
-  echo "   管理后台:       https://${CERT_DOMAIN}/web/"
-  echo "   小程序 H5:      https://${CERT_DOMAIN}/app/"
-  echo "   官网:           https://${CERT_DOMAIN}/"
+  echo "访问地址（NGINX_MODE=auto 按证书状态选择 HTTP / HTTPS）:"
+  echo "   HTTP:  http://<服务器IP>:<HTTP_PORT>/web/"
+  echo "   HTTPS: https://${CERT_DOMAIN}/web/（需完整证书且未固定 http 模式）"
+  echo "   API 与文档分别位于 /api/v1 和 /api/v1/docs"
   echo ""
   echo "日志: bash deploy.sh logs"
 }
@@ -409,27 +407,31 @@ cmd_cert_init() {
   check_compose_env
   ensure_ssl_www
 
-  # 确保 nginx 在运行（提供 ACME webroot）
-  if ! dc ps --format '{{.Name}}' 2>/dev/null | grep -q 'nginx'; then
-    echo "  → 启动 nginx..."
-    if ! dc up -d nginx; then
-      echo "  → ✗ nginx 启动失败，无法提供 ACME webroot" >&2
-      return 1
-    fi
-    sleep 2
+  # 首张证书不存在时也能提供 ACME webroot；等待 nginx -t 成功再签发。
+  # 显式覆盖 https 模式，避免「启动 Nginx 要证书、签证书又要 Nginx」的循环依赖。
+  echo "  → 以 HTTP 模式启动 nginx，提供 ACME 验证..."
+  if ! NGINX_MODE=http dc up -d --wait nginx; then
+    echo "  → ✗ nginx 启动失败，无法提供 ACME webroot" >&2
+    return 1
   fi
 
   echo "签发证书中..."
   # 注意：本函数被 cmd_deploy 以 `cmd_cert_init || …` 调用，而 bash 在 `||` 左操作数
   # 语境下会**对整个函数体禁用 -e**，所以失败必须在这里显式判定，否则会静默返回 0。
-  if ! dc run --rm certbot certonly --webroot -w /var/www/certbot \
+  if ! dc run --rm --no-deps certbot certonly --webroot -w /var/www/certbot \
     -d "${CERT_DOMAIN}" \
     --email "${CERT_EMAIL}" \
     --agree-tos \
     --non-interactive \
     --keep-until-expiring \
     --no-eff-email; then
-    echo "  → ✗ 证书签发失败，nginx 将无法启动 HTTPS" >&2
+    echo "  → ✗ 证书签发失败，nginx 保持 HTTP 模式" >&2
+    return 1
+  fi
+
+  # 配置在容器启动时选取，reload 不会重新执行入口钩子，必须重建容器。
+  if ! dc up -d --no-deps --force-recreate --wait nginx; then
+    echo "  → ✗ 证书已签发，但 nginx 未能按配置模式启动，请检查 nginx 日志" >&2
     return 1
   fi
 

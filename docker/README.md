@@ -45,6 +45,30 @@ MySQL/Redis 全套编排的端口也只绑定回环；公网通过 Nginx 的 80/
 
 ## A：全套服务
 
+### Nginx HTTP / HTTPS
+
+Compose `.env` 中的 `NGINX_MODE` 默认为 `auto`：证书目录
+`nginx/ssl/live/service.xxcdjl.xyz/` 下的 `fullchain.pem`、`privkey.pem` 和 `chain.pem`
+均存在且非空时启用 HTTPS，否则启动 HTTP。也可用 `http` 固定 HTTP；`https` 固定 HTTPS，
+证书缺失时明确报错退出。两个模式共用静态文件和 API 路由。
+
+局域网部署可设置：
+
+```dotenv
+NGINX_MODE=http
+HTTP_PORT=8081
+HTTPS_PORT=8443
+```
+
+然后执行 `docker compose up -d --no-deps --force-recreate nginx`，访问
+`http://<服务器IP>:8081/web/`。无证书时不监听 HTTPS，也不会把 IP 访问重定向到示例域名。
+
+需要 HTTPS 时，先把 `nginx.conf` 的域名、证书路径与 `deploy.sh` 的 `CERT_DOMAIN` /
+`CERT_EMAIL` 改为自己的配置，再执行 `bash ../deploy.sh cert:init`。签发流程先强制启动 HTTP
+提供 ACME webroot，成功后重建 Nginx，按 `.env` 中的模式重新选取配置；使用 `auto` 即切换
+至 HTTPS。公网 ACME 验证需要域名的 80 端口能够到达此 Nginx 的 HTTP 端口。
+证书签发失败时保留 HTTP，排查日志后可重试；生产需要强制 HTTPS 时设置 `NGINX_MODE=https`。
+
 ### 本地构建
 
 ```bash
@@ -81,11 +105,11 @@ docker compose up -d --wait mysql redis
 docker compose pull backend
 docker compose run --rm --no-deps backend alembic upgrade head
 docker compose up -d --no-build --wait backend
-bash ../deploy.sh cert:init
 docker compose up -d nginx
+# 需要 HTTPS 时按上文配置自己的域名，再执行 bash ../deploy.sh cert:init
 ```
 
-Nginx 配置和证书必须对应实际域名。已有服务更新步骤见 CI/CD 文档。
+HTTPS 配置和证书必须对应实际域名。已有服务更新步骤见 CI/CD 文档。
 `restart` 只重启现有容器，更新镜像需要 `pull` 后执行 `up -d`。
 
 ### 开发覆盖

@@ -17,7 +17,10 @@ docker/
 ├── .env.example                       # compose 变量模板（密码、端口、镜像 tag），使用者 cp 成 .env
 ├── backend/Dockerfile                 # 后端镜像（源码 COPY 进镜像，监听 6100）
 ├── nginx/                             # Nginx 反向代理
-│   ├── nginx.conf                     # 主配置
+│   ├── nginx.conf                     # HTTPS 配置（启动时按模式选择）
+│   ├── nginx.http.conf                # 无证书 HTTP 配置
+│   ├── common.conf / locations.conf   # 两种模式共用配置与路由
+│   ├── 40-select-config.sh            # 按 NGINX_MODE 与证书状态选择配置
 │   └── ssl/                           # SSL 证书（certbot 自动管理）
 ├── mysql/  redis/                     # 方式 A 的数据目录
 └── dist/                              # image:export 产物（已 gitignore）
@@ -56,6 +59,9 @@ Compose 服务名保持不变，容器内 DNS 继续使用 `mysql` / `redis` / `
 
 ## SSL Certificate
 
+- `NGINX_MODE=auto`（默认）：完整证书存在时用 HTTPS，否则用 HTTP；`http` / `https` 可固定模式。
+- 入口钩子需保持可执行权限和 LF 换行；主配置由钩子生成，不可只读挂载到 `/etc/nginx/nginx.conf`。
+- 首次签发通过 HTTP 提供 ACME webroot，成功后重建 Nginx 才会重新选取 HTTPS 配置。
 - Let's Encrypt 证书（有效期以服务器当前证书为准）
 - 续签 crontab：每周日 3 点
 - 使用 Docker 内 certbot 而非宿主机安装

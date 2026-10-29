@@ -1,0 +1,2 @@
+# Docker entrypoint scripts must remain executable shell text on Windows checkouts.
+/docker/nginx/*.sh text eol=lf

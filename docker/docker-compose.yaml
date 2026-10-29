@@ -157,11 +157,17 @@ services:
     platform: linux/amd64
     environment:
       TZ: "Asia/Shanghai"
+      NGINX_MODE: "${NGINX_MODE:-auto}"
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # 启动钩子按证书状态选择配置，生成可写的 /etc/nginx/nginx.conf。
+      - ./nginx/nginx.conf:/etc/nginx/fast-admin/nginx.https.conf:ro
+      - ./nginx/nginx.http.conf:/etc/nginx/fast-admin/nginx.http.conf:ro
+      - ./nginx/common.conf:/etc/nginx/fast-admin/common.conf:ro
+      - ./nginx/locations.conf:/etc/nginx/fast-admin/locations.conf:ro
+      - ./nginx/40-select-config.sh:/docker-entrypoint.d/40-select-config.sh:ro
       - ./nginx/web:/usr/share/nginx/html/web:ro
       - ./nginx/app:/usr/share/nginx/html/app:ro
       - ./nginx/docs:/usr/share/nginx/html/docs:ro
