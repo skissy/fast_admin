@@ -38,6 +38,11 @@ GitHub Actions 配置、镜像标签及部署命令见 [CI/CD 说明](../docs/ci
 后端容器内端口固定 `6100`，宿主机映射由 `BACKEND_PORT` 决定，且只绑定 `127.0.0.1`。
 MySQL/Redis 全套编排的端口也只绑定回环；公网通过 Nginx 的 80/443 提供服务。
 
+首次启动会创建数据库表并导入种子数据，可能持续数分钟。Nginx 等后端健康检查通过后启动，
+健康探针直接访问 `/common/health/`。后端启动宽限期默认为 `180s`，较慢机器可在 Compose
+`.env` 中增大 `BACKEND_HEALTH_START_PERIOD`；探针提前成功时会立即标记健康，无需等满宽限期。
+若一直未就绪，先查看 `docker compose logs --tail=200 backend`，检查数据库和插件初始化日志。
+
 ## A：全套服务
 
 ### 本地构建

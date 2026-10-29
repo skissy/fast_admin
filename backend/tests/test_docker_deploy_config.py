@@ -99,13 +99,27 @@ def test_full_compose_pins_container_port_and_env_file() -> None:
     assert f'SERVER_PORT: "{CONTAINER_PORT}"' in text
     assert f'"127.0.0.1:${{BACKEND_PORT:-{CONTAINER_PORT}}}:{CONTAINER_PORT}"' in text
     assert 'CAPTCHA_ENABLE: "true"' in _yaml_only(text)
-    assert f"localhost:{CONTAINER_PORT}/common/health" in text
     assert f"image: {IMAGE_REF}" in text
     assert "- ../backend/env/.env.prod" in text
     assert "../backend:/home" not in _yaml_only(text)
     # 构建上下文必须是仓库根：否则 Docker 去找不存在的 backend/.dockerignore，
     # 根 .dockerignore 的全部保护（.env / *.db）静默失效且无任何报错
     assert "context: ../" in text
+
+    # 容器已启动时 Uvicorn 仍可能在初始化，Nginx 必须等 API 健康才启动。
+    nginx = text.split("\n  nginx:", maxsplit=1)[1].split("\n  certbot:", maxsplit=1)[0]
+    assert re.search(
+        r"(?m)^    depends_on:\n      backend:\n        condition: service_healthy\s*$",
+        _yaml_only(nginx),
+    )
+
+
+@pytest.mark.parametrize("path", (COMPOSE_FULL, COMPOSE_BACKEND), ids=["full", "backend"])
+def test_backend_healthcheck_waits_for_startup_and_checks_health_route(path: Path) -> None:
+    """两种编排均直接探测健康路由，并为首次数据库初始化保留启动宽限期。"""
+    text = _yaml_only(_text(path))
+    assert f'"http://localhost:{CONTAINER_PORT}/common/health/"' in text
+    assert "start_period: ${BACKEND_HEALTH_START_PERIOD:-180s}" in text
 
 
 def test_nginx_proxies_to_container_port() -> None:

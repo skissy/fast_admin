@@ -130,11 +130,12 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:6100/common/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:6100/common/health/"]
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      # 首次建表和种子初始化可能耗时数分钟；宽限期内成功仍会立即标记健康。
+      start_period: ${BACKEND_HEALTH_START_PERIOD:-180s}
     logging:
       driver: "json-file"
       options:
@@ -168,7 +169,8 @@ services:
       - ./nginx/ssl/www:/var/www/certbot:ro
     depends_on:
       backend:
-        condition: service_started
+        # Uvicorn 完成数据库/插件初始化后才监听端口，容器启动不等于 API 就绪。
+        condition: service_healthy
     networks:
       - app_network
     healthcheck:

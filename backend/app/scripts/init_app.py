@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, Any]:
         # 表结构由内核建（插件模型已在 create_app 阶段导入并注册到 metadata）；
         # 种子数据与系统配置/字典缓存预热均归属 module_system 插件，在 runtime.start()
         # 内部按「种子 → 插件 start()」顺序完成。
+        log.info(f"⏳ 正在连接 {settings.DATABASE_TYPE} 数据库并初始化表结构...")
         await create_tables()
         log.info(f"✅ {settings.DATABASE_TYPE}数据库表结构初始化完成")
         await import_modules_async(
