@@ -56,76 +56,7 @@ async def get_current_user(
     返回:
     - AuthSchema: 认证信息模型
     """
-    if not token:
-        raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    # 处理Bearer token
-    if token.startswith("Bearer"):
-        token = token.split(" ")[1]
-
-    payload = decode_access_token(token)
-    if not payload or not hasattr(payload, "is_refresh") or payload.is_refresh:
-        raise CustomException(msg="非法凭证", code=10401, status_code=401)
-
-    online_user_info = payload.sub
-    # 从Redis中获取用户信息
-    user_info = json.loads(online_user_info)  # 确保是字典类型
-
-    session_id = user_info.get("session_id")
-    if not session_id:
-        raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    # 检查用户是否在线
-    online_ok = await RedisCURD(redis).exists(
-        key=f"{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}"
-    )
-    if not online_ok:
-        raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    # 如果启用了滑动过期，自动续期token
-    if settings.TOKEN_SLIDING_EXPIRE:
-        await RedisCURD(redis).expire(
-            key=f"{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}",
-            expire=settings.ACCESS_TOKEN_EXPIRE_SECONDS,
-        )
-        await RedisCURD(redis).expire(
-            key=f"{RedisInitKeyConfig.REFRESH_TOKEN.key}:{session_id}",
-            expire=settings.REFRESH_TOKEN_EXPIRE_SECONDS,
-        )
-
-    # 关闭数据权限过滤，避免当前用户查询被拦截
-    auth = AuthSchema(db=db, check_data_scope=False)
-    username = user_info.get("user_name")
-    if not username:
-        raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    resolver = get(SLOT_AUTH_USER_RESOLVER)
-    if resolver is None:
-        log.warning(
-            "⚠️ 用户解析槽位 auth.user_resolver 未提供，无法认证"
-        )
-        raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    user = await resolver.resolve(db, username)
-    if not user:
-        raise CustomException(msg="用户不存在", code=10401, status_code=401)
-    if user.status == "1":
-        raise CustomException(msg="用户已被停用", code=10401, status_code=401)
-
-    # 设置请求上下文
-    request.scope["user_id"] = user.id
-    request.scope["user_username"] = user.username
-    request.scope["user_mobile"] = user.mobile
-    request.scope["login_type"] = user_info.get("login_type")
-
-    # 过滤可用的角色和职位
-    if hasattr(user, "roles"):
-        user.roles = [role for role in user.roles if role and role.status]
-    if hasattr(user, "positions"):
-        user.positions = [pos for pos in user.positions if pos and pos.status]
-
-    auth.user = user
-    return auth
+    return await _verify_token(token, db, redis, request=request)
 
 
 async def get_current_user_ws(
@@ -150,83 +81,66 @@ async def _verify_token(
     token: str,
     db: AsyncSession,
     redis: Redis,
+    request: Request | None = None,
 ) -> AuthSchema:
-    """验证token并返回用户信息
-
-    参数:
-    - token (str): 认证token
-    - db (AsyncSession): 数据库会话
-    - redis (Redis): Redis连接
-
-    返回:
-    - AuthSchema: 认证信息模型
-    """
+    """校验服务端留存凭据及其身份绑定，供 HTTP 和 WebSocket 共用。"""
     if not token:
         raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    # 处理Bearer token（如果通过查询参数传递时包含Bearer前缀）
-    if token.startswith("Bearer"):
-        token = token.split(" ")[1]
-
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
     payload = decode_access_token(token)
-    if not payload or not hasattr(payload, "is_refresh") or payload.is_refresh:
+    if payload.is_refresh:
         raise CustomException(msg="非法凭证", code=10401, status_code=401)
+    try:
+        user_info = json.loads(payload.sub)
+        if not isinstance(user_info, dict):
+            raise ValueError("invalid session")
+        session_id = user_info.get("session_id")
+        username = user_info.get("user_name")
+        user_id = user_info.get("user_id")
+        if (
+            not isinstance(session_id, str)
+            or not session_id
+            or not isinstance(username, str)
+            or not username
+            or type(user_id) is not int
+            or user_id <= 0
+        ):
+            raise ValueError("invalid identity")
+    except ValueError, TypeError:
+        raise CustomException(msg="非法凭证", code=10401, status_code=401) from None
 
-    online_user_info = payload.sub
-    # 从Redis中获取用户信息
-    user_info = json.loads(online_user_info)  # 确保是字典类型
-
-    session_id = user_info.get("session_id")
-    if not session_id:
-        raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    # 检查用户是否在线
-    online_ok = await RedisCURD(redis).exists(
-        key=f"{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}"
-    )
-    if not online_ok:
-        raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
-    # 如果启用了滑动过期，自动续期token
-    if settings.TOKEN_SLIDING_EXPIRE:
-        await RedisCURD(redis).expire(
-            key=f"{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}",
-            expire=settings.ACCESS_TOKEN_EXPIRE_SECONDS,
-        )
-        await RedisCURD(redis).expire(
-            key=f"{RedisInitKeyConfig.REFRESH_TOKEN.key}:{session_id}",
-            expire=settings.REFRESH_TOKEN_EXPIRE_SECONDS,
-        )
-
-    # 关闭数据权限过滤，避免当前用户查询被拦截
-    auth = AuthSchema(db=db, check_data_scope=False)
-    username = user_info.get("user_name")
-    if not username:
+    # 键存在不代表凭据合法：禁止使用自己的 session_id 冒用其他身份。
+    access_key = f"{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}"
+    stored = await RedisCURD(redis).get(access_key)
+    if isinstance(stored, bytes):
+        stored = stored.decode("utf-8")
+    if not stored or stored != token:
         raise CustomException(msg="认证已失效", code=10401, status_code=401)
 
     resolver = get(SLOT_AUTH_USER_RESOLVER)
     if resolver is None:
-        log.warning(
-            "⚠️ 用户解析槽位 auth.user_resolver 未提供，无法认证"
-        )
+        log.warning("用户解析槽位 auth.user_resolver 未提供，无法认证")
         raise CustomException(msg="认证已失效", code=10401, status_code=401)
-
     user = await resolver.resolve(db, username)
-    if not user:
+    if not user or user.id != user_id or user.username != username:
         raise CustomException(msg="用户不存在", code=10401, status_code=401)
-    if user.status == "1":
+    if user.status != "0":
         raise CustomException(msg="用户已被停用", code=10401, status_code=401)
 
-    # 设置请求上下文
-    # request.scope["user_id"] = user.id
-    # request.scope["user_username"] = user.username
-    # request.scope["login_type"] = user_info.get("login_type")
-
-    # 过滤可用的角色和职位
+    if settings.TOKEN_SLIDING_EXPIRE:
+        await RedisCURD(redis).expire(access_key, expire=settings.ACCESS_TOKEN_EXPIRE_SECONDS)
+        await RedisCURD(redis).expire(
+            f"{RedisInitKeyConfig.REFRESH_TOKEN.key}:{session_id}",
+            expire=settings.REFRESH_TOKEN_EXPIRE_SECONDS,
+        )
+    if request is not None:
+        request.scope["user_id"] = user.id
+        request.scope["user_username"] = user.username
+        request.scope["user_mobile"] = user.mobile
+        request.scope["login_type"] = user_info.get("login_type")
     if hasattr(user, "roles"):
-        user.roles = [role for role in user.roles if role and role.status]
+        user.roles = [role for role in user.roles if role and role.status == "0"]
     if hasattr(user, "positions"):
-        user.positions = [pos for pos in user.positions if pos and pos.status]
-
-    auth.user = user
-    return auth
+        user.positions = [pos for pos in user.positions if pos and pos.status == "0"]
+    return AuthSchema(db=db, user=user, check_data_scope=False)

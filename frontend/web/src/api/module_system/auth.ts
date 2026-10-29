@@ -1,4 +1,4 @@
-import request from '@utils/http'
+import request, { type ExtendedRequestConfig } from '@utils/http'
 
 const API_PATH = '/system/auth'
 
@@ -39,6 +39,18 @@ const AuthAPI = {
       method: 'post',
       data: body,
     })
+  },
+
+  exchangeOAuthCode(code: string) {
+    const config: ExtendedRequestConfig = {
+      url: `${API_PATH}/oauth/code/exchange`,
+      method: 'post',
+      data: { code },
+      withCredentials: true,
+      skipAuth: true,
+      showSuccessMessage: false,
+    }
+    return request<ApiResponse<LoginResult>>(config)
   },
 
   getCaptcha() {

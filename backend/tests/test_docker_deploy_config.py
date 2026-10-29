@@ -97,7 +97,8 @@ def test_full_compose_pins_container_port_and_env_file() -> None:
     """方式 A：端口、镜像名、env_file 三件套对齐，且源码挂载不得出现在主文件里。"""
     text = _text(COMPOSE_FULL)
     assert f'SERVER_PORT: "{CONTAINER_PORT}"' in text
-    assert f"${{BACKEND_PORT:-{CONTAINER_PORT}}}:{CONTAINER_PORT}" in text
+    assert f'"127.0.0.1:${{BACKEND_PORT:-{CONTAINER_PORT}}}:{CONTAINER_PORT}"' in text
+    assert 'CAPTCHA_ENABLE: "true"' in _yaml_only(text)
     assert f"localhost:{CONTAINER_PORT}/common/health" in text
     assert f"image: {IMAGE_REF}" in text
     assert "- ../backend/env/.env.prod" in text
@@ -136,6 +137,7 @@ def test_backend_only_compose_is_image_driven_and_loopback_only() -> None:
     assert f"image: {IMAGE_REF}" in content
     assert "- ./env.prod" in content
     assert "depends_on" not in content
+    assert 'CAPTCHA_ENABLE: "true"' in content
     # 「只绑回环」是排他性约束：存在性断言挡不住再新增一条 0.0.0.0 绑定（静默暴露 API）。
     # 带冒号的列表项即绑定/映射项；方式 B 只允许这一条。
     bindings = [

@@ -1,6 +1,12 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class OAuthCodeSchema(BaseModel):
+    """OAuth 一次性授权码交换请求。"""
+
+    code: str = Field(min_length=32, max_length=128)
+
+
 class JWTOutSchema(BaseModel):
     """JWT响应模型"""
 
@@ -30,7 +36,9 @@ class WxQrCodeSchema(BaseModel):
     """小程序码生成请求"""
 
     scene: str = Field(..., max_length=32, description="场景参数（如 invite=xxx，最大32字符）")
-    page: str | None = Field(default=None, max_length=128, description="小程序页面路径，为空则默认主页")
+    page: str | None = Field(
+        default=None, max_length=128, description="小程序页面路径，为空则默认主页"
+    )
     width: int = Field(default=430, ge=280, le=1280, description="小程序码宽度（px）")
 
 

@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import json
 import secrets
+from hashlib import sha256
 from typing import Any, Literal
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 from fastapi import Request
@@ -37,6 +38,36 @@ OAuthProvider = Literal["wechat", "qq", "github", "gitee"]
 
 STATE_PREFIX = "oauth_state:"
 STATE_TTL_SECONDS = 600
+OAUTH_BROWSER_COOKIE = "oauth_login_nonce"
+OAUTH_CODE_PREFIX = "oauth_code:"
+
+
+def validate_frontend_redirect(frontend_base: str) -> str:
+    """只允许配置中的完整回跳地址，禁止凭据、片段及模糊前缀匹配。"""
+    try:
+        parsed = urlsplit(frontend_base)
+        valid = (
+            frontend_base in settings.OAUTH_REDIRECT_ALLOWLIST
+            and parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.query
+            and not parsed.fragment
+            and not any(ord(char) < 33 for char in frontend_base)
+            and "\\" not in frontend_base
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise CustomException(msg="OAuth 回跳地址未获许可", code=10403, status_code=403)
+    return frontend_base
+
+
+def _browser_digest(nonce: str) -> str:
+    if not nonce:
+        raise CustomException(msg="OAuth 浏览器验证失败", code=10403, status_code=403)
+    return sha256(nonce.encode()).hexdigest()
 
 
 def _callback_url(request: Request, provider: OAuthProvider) -> str:
@@ -45,22 +76,9 @@ def _callback_url(request: Request, provider: OAuthProvider) -> str:
 
 
 def _frontend_error_redirect(frontend_base: str, message: str) -> str:
+    frontend_base = validate_frontend_redirect(frontend_base)
     sep = "&" if "?" in frontend_base else "?"
     return f"{frontend_base}{sep}oauth_error={quote(message, safe='')}"
-
-
-def _frontend_success_redirect(
-    frontend_base: str, access_token: str, refresh_token: str, token_type: str
-) -> str:
-    q = urlencode(
-        {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": token_type,
-        }
-    )
-    sep = "&" if "?" in frontend_base else "?"
-    return f"{frontend_base}{sep}{q}"
 
 
 def _require_credentials(provider: OAuthProvider) -> tuple[str, str]:
@@ -114,7 +132,9 @@ def build_authorize_url(
             "scope": "snsapi_login",
             "state": state,
         }
-        return "https://open.weixin.qq.com/connect/qrconnect?" + urlencode(params) + "#wechat_redirect"
+        return (
+            "https://open.weixin.qq.com/connect/qrconnect?" + urlencode(params) + "#wechat_redirect"
+        )
 
     if provider == "qq":
         params = {
@@ -150,7 +170,9 @@ async def _http_text(method: str, url: str, **kwargs: Any) -> str:
         return r.text
 
 
-async def exchange_github_token(client_id: str, client_secret: str, code: str, redirect_uri: str) -> str:
+async def exchange_github_token(
+    client_id: str, client_secret: str, code: str, redirect_uri: str
+) -> str:
     data = await _http_json(
         "POST",
         "https://github.com/login/oauth/access_token",
@@ -170,16 +192,16 @@ async def exchange_github_token(client_id: str, client_secret: str, code: str, r
     return str(token)
 
 
-async def exchange_gitee_token(client_id: str, client_secret: str, code: str, redirect_uri: str) -> str:
-    qs = urlencode(
-        {
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": redirect_uri,
-        }
-    )
+async def exchange_gitee_token(
+    client_id: str, client_secret: str, code: str, redirect_uri: str
+) -> str:
+    qs = urlencode({
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+    })
     data = await _http_json("GET", f"https://gitee.com/oauth/token?{qs}")
     if not isinstance(data, dict):
         raise CustomException(msg="Gitee token 响应格式错误")
@@ -190,14 +212,12 @@ async def exchange_gitee_token(client_id: str, client_secret: str, code: str, re
 
 
 async def exchange_wechat_token(app_id: str, secret: str, code: str) -> tuple[str, str]:
-    qs = urlencode(
-        {
-            "appid": app_id,
-            "secret": secret,
-            "code": code,
-            "grant_type": "authorization_code",
-        }
-    )
+    qs = urlencode({
+        "appid": app_id,
+        "secret": secret,
+        "code": code,
+        "grant_type": "authorization_code",
+    })
     data = await _http_json("GET", f"https://api.weixin.qq.com/sns/oauth2/access_token?{qs}")
     if not isinstance(data, dict):
         raise CustomException(msg="微信 token 响应格式错误")
@@ -208,16 +228,16 @@ async def exchange_wechat_token(app_id: str, secret: str, code: str) -> tuple[st
     return str(token), str(openid)
 
 
-async def exchange_qq_token(client_id: str, client_secret: str, code: str, redirect_uri: str) -> tuple[str, str]:
-    qs = urlencode(
-        {
-            "grant_type": "authorization_code",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "redirect_uri": redirect_uri,
-        }
-    )
+async def exchange_qq_token(
+    client_id: str, client_secret: str, code: str, redirect_uri: str
+) -> tuple[str, str]:
+    qs = urlencode({
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "redirect_uri": redirect_uri,
+    })
     text = await _http_text("GET", f"https://graph.qq.com/oauth2.0/token?{qs}")
     parts = dict(p.split("=", 1) for p in text.split("&") if "=" in p)
     token = parts.get("access_token")
@@ -279,13 +299,11 @@ async def fetch_wechat_profile(access_token: str, openid: str) -> tuple[str, str
 
 
 async def fetch_qq_profile(access_token: str, app_id: str, openid: str) -> tuple[str, str]:
-    qs = urlencode(
-        {
-            "access_token": access_token,
-            "oauth_consumer_key": app_id,
-            "openid": openid,
-        }
-    )
+    qs = urlencode({
+        "access_token": access_token,
+        "oauth_consumer_key": app_id,
+        "openid": openid,
+    })
     user = await _http_json("GET", f"https://graph.qq.com/user/get_user_info?{qs}")
     if not isinstance(user, dict):
         raise CustomException(msg="QQ 用户信息格式错误")
@@ -323,9 +341,10 @@ async def ensure_oauth_user(
         username=username,
         password=secrets.token_urlsafe(24),
         name=(display_name or username)[:32],
-        role_ids=list(settings.OAUTH_DEFAULT_ROLE_IDS),
     )
-    await UserService.register_user_service(auth=auth, data=reg)
+    await UserService.register_user_service(
+        auth=auth, data=reg, role_ids=list(settings.OAUTH_DEFAULT_ROLE_IDS)
+    )
     user = await UserCRUD(auth).get_by_username_crud(username=username)
     if not user:
         raise CustomException(msg="OAuth 注册失败")
@@ -343,7 +362,7 @@ async def complete_oauth_login(
     state: str,
 ) -> tuple[JWTOutSchema, str]:
     rc = RedisCURD(redis)
-    raw = await rc.get(f"{STATE_PREFIX}{state}")
+    raw = await redis.getdel(f"{STATE_PREFIX}{state}")
     if not raw:
         raise CustomException(msg="登录状态已失效，请重试")
     if isinstance(raw, bytes):
@@ -351,10 +370,14 @@ async def complete_oauth_login(
     payload = json.loads(raw)
     if payload.get("provider") != provider:
         raise CustomException(msg="OAuth 状态不匹配")
+    if not secrets.compare_digest(
+        payload.get("browser_digest", ""),
+        _browser_digest(request.cookies.get(OAUTH_BROWSER_COOKIE, "")),
+    ):
+        raise CustomException(msg="OAuth 浏览器验证失败", code=10403, status_code=403)
 
     frontend = str(payload.get("frontend_redirect") or "").strip()
-    if not frontend:
-        raise CustomException(msg="缺少前端回调地址")
+    frontend = validate_frontend_redirect(frontend)
 
     callback_url = _callback_url(request, provider)
     cid, csec = _require_credentials(provider)
@@ -380,9 +403,9 @@ async def complete_oauth_login(
     if user.status == "1":
         raise CustomException(msg="用户已被停用")
 
-    user = await UserCRUD(AuthSchema(db=db, user=None, check_data_scope=False)).update_last_login_crud(
-        id=user.id
-    )
+    user = await UserCRUD(
+        AuthSchema(db=db, user=None, check_data_scope=False)
+    ).update_last_login_crud(id=user.id)
     if not user:
         raise CustomException(msg="用户不存在")
 
@@ -400,26 +423,47 @@ async def save_oauth_state(
     state: str,
     provider: OAuthProvider,
     frontend_redirect: str,
+    browser_nonce: str,
 ) -> None:
+    frontend_redirect = validate_frontend_redirect(frontend_redirect)
     rc = RedisCURD(redis)
     ok = await rc.set(
         f"{STATE_PREFIX}{state}",
-        json.dumps({"provider": provider, "frontend_redirect": frontend_redirect}),
+        json.dumps({
+            "provider": provider,
+            "frontend_redirect": frontend_redirect,
+            "browser_digest": _browser_digest(browser_nonce),
+        }),
         expire=STATE_TTL_SECONDS,
     )
     if not ok:
         raise CustomException(msg="缓存 OAuth 状态失败")
 
 
-def oauth_service_frontend_redirect_from_token(
-    frontend_base: str, token: JWTOutSchema
+async def oauth_service_frontend_redirect_from_token(
+    frontend_base: str, token: JWTOutSchema, *, redis: Redis, browser_nonce: str
 ) -> str:
-    return _frontend_success_redirect(
-        frontend_base,
-        token.access_token,
-        token.refresh_token,
-        token.token_type,
+    """保存令牌并回跳短时一次性授权码，URL 中不携带会话凭据。"""
+    frontend_base = validate_frontend_redirect(frontend_base)
+    code = secrets.token_urlsafe(32)
+    await redis.set(
+        f"{OAUTH_CODE_PREFIX}{code}",
+        json.dumps({"token": token.model_dump(), "browser_digest": _browser_digest(browser_nonce)}),
+        ex=60,
     )
+    return f"{frontend_base}?{urlencode({'oauth_code': code})}"
+
+
+async def exchange_oauth_code(*, redis: Redis, code: str, browser_nonce: str) -> JWTOutSchema:
+    """原子消费授权码，并验证发起登录的浏览器。"""
+    digest = _browser_digest(browser_nonce)
+    raw = await redis.getdel(f"{OAUTH_CODE_PREFIX}{code}")
+    if not raw:
+        raise CustomException(msg="OAuth 授权码已失效", code=10401, status_code=401)
+    payload = json.loads(raw)
+    if not secrets.compare_digest(payload.get("browser_digest", ""), digest):
+        raise CustomException(msg="OAuth 浏览器验证失败", code=10403, status_code=403)
+    return JWTOutSchema.model_validate(payload["token"])
 
 
 def oauth_service_error_redirect(frontend_base: str, message: str) -> str:
@@ -427,12 +471,15 @@ def oauth_service_error_redirect(frontend_base: str, message: str) -> str:
 
 
 __all__ = [
+    "OAUTH_BROWSER_COOKIE",
     "STATE_PREFIX",
     "OAuthProvider",
     "_callback_url",
     "build_authorize_url",
     "complete_oauth_login",
+    "exchange_oauth_code",
     "oauth_service_error_redirect",
     "oauth_service_frontend_redirect_from_token",
     "save_oauth_state",
+    "validate_frontend_redirect",
 ]

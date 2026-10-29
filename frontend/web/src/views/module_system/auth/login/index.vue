@@ -201,6 +201,10 @@ const panelSubTitle = computed(() => {
 const userAgreementHref = computed(() => configStore.configData?.sys_web_clause?.config_value || '#')
 
 function setAuthPanel(panel: AuthPanel) {
+  if (panel === 'forget') {
+    ElMessage.info('自助找回密码暂未开放，请联系管理员')
+    return
+  }
   authPanel.value = panel
   if (panel !== 'login') {
     loginFlowMode.value = 'account'
@@ -238,13 +242,13 @@ function handleOAuthLogin(provider: OAuthProvider) {
 async function tryConsumeOAuthCallback() {
   const q = route.query
   const oauthError = q.oauth_error as string | undefined
-  const access = q.access_token as string | undefined
-  const refresh = q.refresh_token as string | undefined
+  const oauthCode = q.oauth_code as string | undefined
 
-  if (!oauthError && !(access && refresh)) return
+  if (!oauthError && !oauthCode) return
 
   const rest: Record<string, unknown> = { ...q }
   delete rest.oauth_error
+  delete rest.oauth_code
   delete rest.access_token
   delete rest.refresh_token
   delete rest.token_type
@@ -255,8 +259,13 @@ async function tryConsumeOAuthCallback() {
     return
   }
 
-  if (access && refresh) {
+  // 在交换凭据和后续导航前清除浏览器地址中的一次性授权码。
+  await router.replace({ path: route.path, query: rest as LocationQuery })
+  if (oauthCode) {
     try {
+      const { data: response } = await AuthAPI.exchangeOAuthCode(oauthCode)
+      const data = response.data
+      const { access_token: access, refresh_token: refresh } = data
       Auth.setTokens(access, refresh, true)
       userStore.setToken(access, refresh)
       userStore.setLoginStatus(true)

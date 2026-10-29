@@ -2,17 +2,23 @@ import os
 import random
 import re
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urljoin
 
 import aiofiles
 from fastapi import UploadFile
+from PIL import Image, UnidentifiedImageError
 
 from app.config.setting import settings
 from app.core.exceptions import CustomException
 from app.core.logger import log
 
 DANGEROUS_EXTENSIONS = {
+    ".svg",
+    ".html",
+    ".htm",
+    ".xml",
     ".py",
     ".pyc",
     ".pyo",
@@ -82,6 +88,41 @@ class UploadUtil:
     """
     上传工具类
     """
+
+    @staticmethod
+    def reencode_image(content: bytes, extension: str) -> bytes:
+        """完整解码并重新编码位图，移除附带脚本、元数据和尾随内容。"""
+        formats = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".gif": "GIF", ".ico": "ICO"}
+        expected = formats.get(extension.lower())
+        if expected is None:
+            raise CustomException(msg="头像仅支持 JPEG、PNG、GIF、ICO 位图")
+        try:
+            with Image.open(BytesIO(content)) as image:
+                if image.format != expected or image.width * image.height > 16_000_000:
+                    raise CustomException(msg="图片类型不匹配或尺寸过大")
+                image.load()
+                clean = image.convert("RGB" if expected == "JPEG" else "RGBA")
+                clean.info.clear()
+                output = BytesIO()
+                clean.save(output, format=expected)
+                return output.getvalue()
+        except UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError:
+            raise CustomException(msg="图片内容无效") from None
+
+    @classmethod
+    async def upload_avatar(cls, file: UploadFile, base_url: str) -> tuple[str, Path, str]:
+        """限制头像为经完整解码重编码的位图。"""
+        extension = cls.get_extension_from_filename(file.filename or "")
+        cls.check_file_size(file)
+        content = await file.read(settings.MAX_FILE_SIZE + 1)
+        if len(content) > settings.MAX_FILE_SIZE:
+            raise CustomException(msg="文件大小超过限制")
+        clean = cls.reencode_image(content, extension)
+        safe_file = UploadFile(filename=f"avatar{extension}", file=BytesIO(clean), size=len(clean))
+        try:
+            return await cls.upload_file(safe_file, base_url)
+        finally:
+            await safe_file.close()
 
     @staticmethod
     def generate_random_number() -> str:
@@ -238,6 +279,11 @@ class UploadUtil:
         异常:
         - CustomException: 类型不匹配时抛出。
         """
+        if claimed_extension.lower() in DANGEROUS_EXTENSIONS:
+            raise CustomException(msg="不允许上传此类型的文件")
+        if claimed_extension.lower() in {".jpg", ".jpeg", ".png", ".gif", ".ico"}:
+            cls.reencode_image(content, claimed_extension)
+            return True
         detected_type = cls.detect_file_type(content)
         if detected_type:
             expected_ext = MIME_TYPE_MAPPING.get(detected_type, "")
@@ -307,7 +353,7 @@ class UploadUtil:
             timestamp = name_parts[-1].split(settings.UPLOAD_MACHINE)[0]
             datetime.strptime(timestamp, "%Y%m%d%H%M%S")
             return True
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             return False
 
     @staticmethod
@@ -409,10 +455,14 @@ class UploadUtil:
 
         cls.check_file_size(file)
 
-        content = await file.read()
+        content = await file.read(settings.MAX_FILE_SIZE + 1)
         await file.seek(0)
+        if len(content) > settings.MAX_FILE_SIZE:
+            raise CustomException(msg="文件大小超过限制")
 
         cls.validate_file_content_type(content, extension)
+        if extension in {".jpg", ".jpeg", ".png", ".gif", ".ico"}:
+            content = cls.reencode_image(content, extension)
 
         safe_filename = cls.generate_safe_filename(original_filename, extension)
 
@@ -428,10 +478,8 @@ class UploadUtil:
 
             file_url = urljoin(base_url, str(filepath))
 
-            chunk_size = 8 * 1024 * 1024
             async with aiofiles.open(filepath, "wb") as f:
-                while chunk := await file.read(chunk_size):
-                    await f.write(chunk)
+                await f.write(content)
 
             log.info(f"文件上传成功: {safe_filename}")
             return safe_filename, filepath, file_url

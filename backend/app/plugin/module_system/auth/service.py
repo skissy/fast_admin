@@ -67,12 +67,8 @@ class LoginService:
         """
         _t = time.time()
 
-        # 判断是否来自API文档
-        referer = request.headers.get("referer", "")
-        request_from_docs = referer.endswith(("docs", "redoc"))
-
         # 验证码校验
-        if settings.CAPTCHA_ENABLE and not request_from_docs:
+        if settings.CAPTCHA_ENABLE:
             if not login_form.captcha_key or not login_form.captcha:
                 raise CustomException(msg="验证码不能为空")
             await CaptchaService.check_captcha_service(
@@ -102,9 +98,7 @@ class LoginService:
             log.error(f"[登录] SM2 密码解密失败: {e}")
             raise CustomException(msg="账号或密码错误")
 
-        if not PwdUtil.verify_password(
-            plain_password=plain_password, password_hash=user.password
-        ):
+        if not PwdUtil.verify_password(plain_password=plain_password, password_hash=user.password):
             raise CustomException(msg="账号或密码错误")
         log.info(f"[登录计时] 密码校验: {round((time.time() - _t3) * 1000, 1)}ms")
         _t4 = time.time()
@@ -129,7 +123,9 @@ class LoginService:
             user=user,
             login_type=login_form.login_type,
         )
-        log.info(f"[登录计时] 创建Token(含IP解析+Redis写入+在线记录): {round((time.time() - _t5) * 1000, 1)}ms")
+        log.info(
+            f"[登录计时] 创建Token(含IP解析+Redis写入+在线记录): {round((time.time() - _t5) * 1000, 1)}ms"
+        )
 
         log.info(f"[登录计时] ⭐ 登录总耗时: {round((time.time() - _t) * 1000, 1)}ms")
 
@@ -275,19 +271,17 @@ class LoginService:
         # 否则旧刷新令牌仍能换出新访问令牌：登出形同虚设，且可被无限续期。
         # REDIS_ENABLE=False 时整条鉴权链路本就不可用（redis_connect 直接抛错），
         # 因此这里的严格比对不会误伤「无 Redis」部署。
-        stored = await RedisCURD(redis).get(
-            f"{RedisInitKeyConfig.REFRESH_TOKEN.key}:{session_id}"
-        )
+        stored = await RedisCURD(redis).get(f"{RedisInitKeyConfig.REFRESH_TOKEN.key}:{session_id}")
         if not stored or stored != refresh_token.refresh_token:
-            raise CustomException(
-                msg="刷新令牌已失效，请重新登录", code=10401, status_code=401
-            )
+            raise CustomException(msg="刷新令牌已失效，请重新登录", code=10401, status_code=401)
 
         # 用户认证
         auth = AuthSchema(db=db)
         user = await UserCRUD(auth).get_by_id_crud(id=user_id)
         if not user:
             raise CustomException(msg="刷新token失败，用户不存在", code=10401, status_code=401)
+        if user.status != "0":
+            raise CustomException(msg="用户已被停用", code=10401, status_code=401)
 
         # 记录刷新令牌时的租户信息
         log.info(f"用户ID: {user.id}, 用户名: {user.username} 正在刷新JWT令牌")
@@ -370,7 +364,9 @@ class CaptchaService:
     """验证码服务"""
 
     @classmethod
-    async def get_captcha_service(cls, redis: Redis) -> dict[str, bool | CaptchaKey | CaptchaBase64]:
+    async def get_captcha_service(
+        cls, redis: Redis
+    ) -> dict[str, bool | CaptchaKey | CaptchaBase64]:
         """
         获取验证码
 
@@ -440,7 +436,7 @@ class CaptchaService:
 
         # 验证码不区分大小写比对
         if captcha.lower() != captcha_value.lower():
-            log.error(f"验证码错误,用户输入:{captcha},正确值:{captcha_value}")
+            log.error("验证码校验失败")
             raise CustomException(msg="验证码错误")
 
         # 验证成功后删除验证码,避免重复使用
@@ -450,159 +446,23 @@ class CaptchaService:
 
 
 class AutoLoginService:
-    """免登录服务"""
-
-    # 免登录Token前缀
-    AUTO_LOGIN_PREFIX = "fastapiadmin:auto_login:"
-    # Token有效期(秒) - 5分钟
-    TOKEN_EXPIRE = 300
+    """已停用的免登录接口；保留服务签名以让旧调用明确失败。"""
 
     @classmethod
     async def get_auto_login_users_service(cls, db: AsyncSession) -> list[AutoLoginUserSchema]:
-        """
-        获取免登录用户列表
-
-        参数:
-        - db (AsyncSession): 数据库会话对象
-
-        返回:
-        - list[AutoLoginUserSchema]: 用户列表
-        """
-        from sqlalchemy import select
-
-        from app.plugin.module_system.user.model import UserModel
-
-        # 查询所有启用的用户
-        stmt = select(UserModel).where(UserModel.status == "0").order_by(UserModel.id)
-        result = await db.execute(stmt)
-        users = result.scalars().all()
-
-        return [
-            AutoLoginUserSchema(
-                id=user.id,
-                username=user.username,
-                name=user.name,
-                avatar=user.avatar,
-            )
-            for user in users
-        ]
+        """拒绝公开枚举账户。"""
+        raise CustomException(msg="免登录功能已停用", code=10403, status_code=403)
 
     @classmethod
     async def create_auto_login_token_service(
         cls, redis: Redis, db: AsyncSession, user_id: int
     ) -> AutoLoginTokenSchema:
-        """
-        创建免登录Token
-
-        参数:
-        - request (Request): FastAPI请求对象
-        - redis (Redis): Redis客户端对象
-        - db (AsyncSession): 数据库会话对象
-        - user_id (int): 用户ID
-
-        返回:
-        - AutoLoginTokenSchema: 免登录Token和用户信息
-
-        异常:
-        - CustomException: 用户不存在或已停用时抛出异常
-        """
-        from sqlalchemy import select
-
-        from app.plugin.module_system.user.model import UserModel
-
-        # 查询用户
-        stmt = select(UserModel).where(UserModel.id == user_id)
-        result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise CustomException(msg="用户不存在")
-
-        if user.status == "1":
-            raise CustomException(msg="用户已被停用")
-
-        # 生成免登录Token
-        import uuid
-
-        token = str(uuid.uuid4())
-        token_key = f"{cls.AUTO_LOGIN_PREFIX}{token}"
-
-        # 存储到Redis，设置5分钟过期
-        token_data = {
-            "user_id": user.id,
-            "username": user.username,
-            "created_at": datetime.now().isoformat(),
-        }
-        await RedisCURD(redis).set(
-            key=token_key,
-            value=json.dumps(token_data),
-            expire=cls.TOKEN_EXPIRE,
-        )
-
-        log.info(f"创建免登录Token成功,用户:{user.username}")
-
-        return AutoLoginTokenSchema(
-            token=token,
-            user=AutoLoginUserSchema(
-                id=user.id,
-                username=user.username,
-                name=user.name,
-                avatar=user.avatar,
-            ),
-        )
+        """拒绝签发免登录凭据。"""
+        raise CustomException(msg="免登录功能已停用", code=10403, status_code=403)
 
     @classmethod
     async def auto_login_service(
         cls, request: Request, redis: Redis, db: AsyncSession, token: str
     ) -> JWTOutSchema:
-        """
-        免登录
-
-        参数:
-        - request (Request): FastAPI请求对象
-        - redis (Redis): Redis客户端对象
-        - db (AsyncSession): 数据库会话对象
-        - token (str): 免登录Token
-
-        返回:
-        - JWTOutSchema: JWT令牌信息
-
-        异常:
-        - CustomException: Token无效或过期时抛出异常
-        """
-        from sqlalchemy import select
-
-        from app.plugin.module_system.user.model import UserModel
-
-        # 验证Token
-        token_key = f"{cls.AUTO_LOGIN_PREFIX}{token}"
-        token_data_str = await RedisCURD(redis).get(token_key)
-
-        if not token_data_str:
-            raise CustomException(msg="免登录Token已过期或无效")
-
-        token_data = json.loads(token_data_str)
-        user_id = token_data.get("user_id")
-
-        # 查询用户
-        stmt = select(UserModel).where(UserModel.id == user_id)
-        result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise CustomException(msg="用户不存在")
-
-        if user.status == "1":
-            raise CustomException(msg="用户已被停用")
-
-        # 删除已使用的Token
-        await RedisCURD(redis).delete(token_key)
-
-        # 使用LoginService创建token
-        jwt_token = await LoginService.create_token_service(
-            request=request, redis=redis, user=user, login_type="PC端"
-        )
-
-        log.info(f"用户{user.username}免登录成功")
-
-        return jwt_token
+        """拒绝兑换历史免登录凭据。"""
+        raise CustomException(msg="免登录功能已停用", code=10403, status_code=403)

@@ -207,14 +207,12 @@ async def code2session(code: str) -> dict:
     - CustomException: 微信返回异常或数据不完整时抛出。
     """
     app_id, app_secret = _require_mini_credentials()
-    qs = urlencode(
-        {
-            "appid": app_id,
-            "secret": app_secret,
-            "js_code": code,
-            "grant_type": "authorization_code",
-        }
-    )
+    qs = urlencode({
+        "appid": app_id,
+        "secret": app_secret,
+        "js_code": code,
+        "grant_type": "authorization_code",
+    })
     data = await _http_json("GET", f"{_CODE2SESSION_URL}?{qs}")
     _check_wx_error(data, "code2Session")
 
@@ -373,10 +371,11 @@ async def ensure_wx_user(
         username=username,
         password=secrets.token_urlsafe(24),
         name=display_name,
-        role_ids=list(settings.OAUTH_DEFAULT_ROLE_IDS),
     )
     try:
-        await UserService.register_user_service(auth=auth, data=reg)
+        await UserService.register_user_service(
+            auth=auth, data=reg, role_ids=list(settings.OAUTH_DEFAULT_ROLE_IDS)
+        )
     except Exception:
         # 并发创建可能触发唯一约束冲突，回退到再次查询
         existing = await UserCRUD(auth).get_by_username_crud(username=username)
@@ -418,10 +417,11 @@ async def ensure_wx_phone_user(*, db: AsyncSession, phone: str) -> UserModel:
         password=secrets.token_urlsafe(24),
         name=f"用户{phone[-4:]}",
         mobile=phone,
-        role_ids=list(settings.OAUTH_DEFAULT_ROLE_IDS),
     )
     try:
-        await UserService.register_user_service(auth=auth, data=reg)
+        await UserService.register_user_service(
+            auth=auth, data=reg, role_ids=list(settings.OAUTH_DEFAULT_ROLE_IDS)
+        )
     except Exception as exc:
         raise CustomException(msg="手机号用户注册失败") from exc
 

@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 
 from fastapi import UploadFile
 
@@ -70,13 +70,13 @@ class FileService:
                 raise CustomException(msg="非法的文件路径")
 
         upload_root = settings.UPLOAD_FILE_PATH.resolve()
-        abs_path = os.path.normpath(os.path.abspath(file_path))
+        abs_path = Path(file_path).resolve()
 
-        if not abs_path.startswith(str(upload_root)):
+        if not abs_path.is_relative_to(upload_root):
             log.error(f"路径不在上传目录内: {file_path}")
             raise CustomException(msg="非法的文件路径")
 
-        return abs_path
+        return str(abs_path)
 
     @classmethod
     async def download_service(cls, file_path: str) -> DownloadFileSchema:
@@ -94,7 +94,7 @@ class FileService:
         """
         safe_path = cls._validate_download_path(file_path)
 
-        if not UploadUtil.check_file_exists(safe_path):
+        if not Path(safe_path).is_file():
             raise CustomException(msg="文件不存在")
 
         # 必须 await：download_file 是协程，漏 await 会把 file_name 变成

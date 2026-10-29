@@ -70,6 +70,7 @@ class _User:
 
     id = USER_ID
     username = "super"
+    status = "0"
 
 
 async def _user_lookup(*_args: object, **_kwargs: object) -> _User:

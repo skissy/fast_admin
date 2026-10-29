@@ -1397,6 +1397,20 @@
             "description": "初始化数据",
             "affix": false,
             "params": null
+          },
+          {
+            "name": "重置用户密码",
+            "type": 3,
+            "order": 10,
+            "permission": "module_system:user:reset",
+            "status": "0",
+            "title": "重置用户密码",
+            "description": "需单独授权，受用户数据范围约束",
+            "hidden": false,
+            "keep_alive": false,
+            "always_show": false,
+            "affix": false,
+            "params": null
           }
         ],
         "affix": false,

@@ -54,7 +54,10 @@ const UserAPI = {
    * @returns 忘记密码结果
    */
   registerUser(body: RegisterForm): Promise<ApiResponse> {
-    return http.Post(`${USER_BASE_URL}/register`, body)
+    return http.Post(`${USER_BASE_URL}/register`, {
+      username: body.username,
+      password: body.password,
+    })
   },
 
   /**

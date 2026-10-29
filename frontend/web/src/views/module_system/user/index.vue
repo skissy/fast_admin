@@ -363,7 +363,7 @@ function buildUserRowActions(
       label: '重置密码',
       artType: 'edit',
       icon: 'ri:refresh-line',
-      perm: 'module_system:user:update',
+      perm: 'module_system:user:reset',
       disabled: sys,
       run: () => {
         if (sys) return

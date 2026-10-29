@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote_plus
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.common.enums import EnvironmentEnum
@@ -103,6 +104,20 @@ class Settings(BaseSettings):
     TOKEN_SLIDING_EXPIRE: bool = True
     """是否启用滑动过期（操作时自动续期）"""
 
+    @model_validator(mode="after")
+    def validate_production_secret(self) -> Settings:
+        """拒绝使用公开默认密钥或弱密钥启动生产服务。"""
+        if self.ENVIRONMENT == EnvironmentEnum.PROD and (
+            self.SECRET_KEY == "change-me-to-a-secure-random-key"
+            or any(
+                marker in self.SECRET_KEY.lower() for marker in ("change-me", "your-", "replace-me")
+            )
+            or len(self.SECRET_KEY.encode()) < 32
+            or len(set(self.SECRET_KEY)) < 10
+        ):
+            raise ValueError("生产环境 SECRET_KEY 必须使用至少 32 字节的随机密钥")
+        return self
+
     # 多租户
     TENANT_HOST_ENFORCE: bool = False
     """是否启用多租户子域名解析"""
@@ -200,6 +215,10 @@ class Settings(BaseSettings):
     # ================================================= #
     OAUTH_DEFAULT_ROLE_IDS: list[int] = [2]
     """OAuth 自动注册用户的默认角色 ID 列表"""
+    REGISTER_DEFAULT_ROLE_IDS: list[int] = []
+    """公开注册的服务端角色白名单；默认不授予任何管理权限"""
+    OAUTH_REDIRECT_ALLOWLIST: list[str] = []
+    """OAuth 前端回跳完整 URL 白名单（精确匹配，不接受通配符）"""
     OAUTH_FRONTEND_FALLBACK: str = "http://127.0.0.1:5173/login"
     """OAuth 回调异常时回跳的前端地址"""
     OAUTH_GITHUB_CLIENT_ID: str = ""
@@ -236,7 +255,9 @@ class Settings(BaseSettings):
     # ================================================= #
     WX_MINI_APP_ID: str = ""  # 小程序 AppID（微信公众平台）
     WX_MINI_APP_SECRET: str = ""  # 小程序 AppSecret
-    WX_MINI_ACCESS_TOKEN_CACHE_TTL: int = 7000  # access_token 缓存秒数（微信上限 7200，留 200s 余量）
+    WX_MINI_ACCESS_TOKEN_CACHE_TTL: int = (
+        7000  # access_token 缓存秒数（微信上限 7200，留 200s 余量）
+    )
 
     # ================================================= #
     # ********************* 操作日志 ******************* #
@@ -289,7 +310,7 @@ class Settings(BaseSettings):
     """文件上传存储目录"""
     UPLOAD_MACHINE: str = "A"
     """上传机器标识"""
-    ALLOWED_EXTENSIONS: list[str] = [".gif", ".jpg", ".jpeg", ".png", ".ico", ".svg", ".xls", ".xlsx"]
+    ALLOWED_EXTENSIONS: list[str] = [".gif", ".jpg", ".jpeg", ".png", ".ico", ".xls", ".xlsx"]
     """允许上传的文件扩展名列表"""
     MAX_FILE_SIZE: int = 10 * 1024 * 1024
     """最大上传文件大小（字节）"""

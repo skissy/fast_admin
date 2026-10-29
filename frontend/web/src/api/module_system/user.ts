@@ -48,7 +48,7 @@ export const UserAPI = {
     return request<ApiResponse>({
       url: `${API_PATH}/register`,
       method: 'post',
-      data: body,
+      data: { username: body.username, password: body.password },
     })
   },
 

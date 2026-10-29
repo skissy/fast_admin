@@ -18,8 +18,10 @@ os.environ.setdefault("CORS_ORIGIN_ENABLE", "False")
 os.environ.setdefault("LOGGER_LEVEL", "ERROR")
 
 from collections.abc import Iterator
+from unittest.mock import patch
 
 import pytest
+from apscheduler.jobstores.memory import MemoryJobStore
 from fastapi.testclient import TestClient
 
 
@@ -34,8 +36,12 @@ def test_client() -> Iterator[TestClient]:
     返回:
     - Iterator[TestClient]: 用于发送测试请求的客户端。
     """
+    from app.core.ap_scheduler import scheduler
     from main import create_app
 
     app = create_app()
-    with TestClient(app) as client:
-        yield client
+    # APScheduler 仍注册了 redis jobstore；仅在隔离测试中替换，防止启动 fixture
+    # 在 REDIS_ENABLE=False 时意外连接真实 Redis，并阻塞整个事件循环。
+    with patch.dict(scheduler._jobstores, {"redis": MemoryJobStore()}):
+        with TestClient(app) as client:
+            yield client

@@ -2,6 +2,7 @@ import jwt
 from fastapi import Form, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.security.utils import get_authorization_scheme_param
+from pydantic import ValidationError
 
 from app.config.setting import settings
 from app.core.auth.schema import JWTPayloadSchema
@@ -130,7 +131,12 @@ def decode_access_token(token: str) -> JWTPayloadSchema:
         raise CustomException(msg="认证不存在,请重新登录", code=10401, status_code=401)
 
     try:
-        payload = jwt.decode(jwt=token, key=settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            jwt=token,
+            key=settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"require": ["exp", "sub", "is_refresh"]},
+        )
 
         online_user_info = payload.get("sub")
         if not online_user_info:
@@ -138,11 +144,11 @@ def decode_access_token(token: str) -> JWTPayloadSchema:
 
         return JWTPayloadSchema(**payload)
 
-    except (jwt.InvalidSignatureError, jwt.DecodeError):
+    except jwt.InvalidSignatureError, jwt.DecodeError:
         raise CustomException(msg="无效认证,请重新登录", code=10401, status_code=401)
 
     except jwt.ExpiredSignatureError:
         raise CustomException(msg="认证已过期,请重新登录", code=10401, status_code=401)
 
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError, ValidationError:
         raise CustomException(msg="token已失效,请重新登录", code=10401, status_code=401)

@@ -11,6 +11,7 @@ from app.core.auth.schema import AuthSchema
 from app.core.base_params import PaginationQueryParam
 from app.core.base_schema import BatchSetAvailable
 from app.core.dependencies import db_getter, get_current_user
+from app.core.exceptions import CustomException
 from app.core.logger import log
 from app.core.router_class import OperationLogRoute
 from app.utils.common_util import bytes2file_response
@@ -20,7 +21,6 @@ from .schema import (
     ResetPasswordSchema,
     UserChangePasswordSchema,
     UserCreateSchema,
-    UserForgetPasswordSchema,
     UserOutSchema,
     UserQueryParam,
     UserRegisterSchema,
@@ -134,7 +134,7 @@ async def change_current_user_password_controller(
 )
 async def reset_password_controller(
     data: ResetPasswordSchema,
-    auth: Annotated[AuthSchema, Depends(get_current_user)],
+    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_system:user:reset"]))],
 ) -> JSONResponse:
     """
     重置密码
@@ -177,30 +177,10 @@ async def register_user_controller(
     return SuccessResponse(data=user_register_result, msg="注册用户成功")
 
 
-@UserRouter.post(
-    "/forget/password",
-    summary="忘记密码",
-    description="忘记密码",
-    response_model=ResponseSchema[UserOutSchema],
-)
-async def forget_password_controller(
-    data: UserForgetPasswordSchema,
-    db: Annotated[AsyncSession, Depends(db_getter)],
-) -> JSONResponse:
-    """
-    忘记密码
-
-    参数:
-    - data (UserForgetPasswordSchema): 用户忘记密码模型
-    - db (AsyncSession): 异步数据库会话
-
-    返回:
-    - JSONResponse: 忘记密码JSON响应
-    """
-    auth = AuthSchema(db=db)
-    user_forget_password_result = await UserService.forget_password_service(data=data, auth=auth)
-    log.info(f"{data.username} 重置密码成功: {user_forget_password_result}")
-    return SuccessResponse(data=user_forget_password_result, msg="重置密码成功")
+@UserRouter.post("/forget/password", summary="自助找回密码（暂未开放）")
+async def forget_password_controller() -> JSONResponse:
+    """在具备账户验证机制之前拒绝自助改密。"""
+    raise CustomException(msg="自助找回密码暂未开放，请联系管理员", code=10403, status_code=403)
 
 
 @UserRouter.get(

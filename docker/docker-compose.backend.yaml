@@ -30,7 +30,7 @@ services:
       TZ: "Asia/Shanghai"
       ENVIRONMENT: "prod" # 决定 pydantic 加载 env/.env.prod（本模式用 env_file 注入）
       SERVER_PORT: "6100" # 与 Dockerfile EXPOSE 口径一致
-      CAPTCHA_ENABLE: "false"
+      CAPTCHA_ENABLE: "true"
     # 应用配置（含 DATABASE_HOST / REDIS_HOST，指向服务器已有实例）
     # 文件缺失时 compose 直接报错退出
     env_file:

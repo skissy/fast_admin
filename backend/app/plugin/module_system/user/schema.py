@@ -104,12 +104,12 @@ class CurrentUserUpdateSchema(BaseModel):
 class UserRegisterSchema(BaseModel):
     """注册"""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, description="名称")
     mobile: str | None = Field(default=None, description="手机号")
     username: str = Field(..., description="账号")
     password: str = Field(..., description="密码哈希值")
-    role_ids: list[int] | None = Field(default=[1], description="角色ID")
-    created_id: int | None = Field(default=1, description="创建人ID")
     description: str | None = Field(default=None, max_length=255, description="备注")
 
     @field_validator("mobile")

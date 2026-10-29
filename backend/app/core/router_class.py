@@ -58,6 +58,42 @@ def build_operation_log_signature(sign_data: str) -> tuple[str | None, str | Non
     return signature, _SIGNED_FIELDS
 
 
+_LOG_FIELDS = {
+    "body",
+    "path_params",
+    "data",
+    "items",
+    "rows",
+    "list",
+    "total",
+    "status_code",
+    "status",
+    "id",
+    "ids",
+    "page_no",
+    "page_size",
+    "username",
+}
+
+
+def sanitize_log_data(value: Any, field: str | None = None) -> Any:
+    """递归保留审计所需的白名单字段，未知字段和非结构化内容不入日志。"""
+    if isinstance(value, dict):
+        return {
+            str(key): sanitize_log_data(item, str(key)) if str(key) in _LOG_FIELDS else "[REDACTED]"
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [sanitize_log_data(item, field) for item in value]
+    if field in {"id", "ids", "total", "page_no", "page_size", "status_code"} and isinstance(
+        value, int
+    ):
+        return value
+    if field in {"username", "status"} and isinstance(value, str):
+        return value
+    return None if value is None else "[REDACTED]"
+
+
 class OperationLogRoute(APIRoute):
     """操作日志路由装饰器"""
 
@@ -100,50 +136,34 @@ class OperationLogRoute(APIRoute):
                 return response
 
             user_agent = parse(request.headers.get("user-agent"))
-            payload = b"{}"
             req_content_type = request.headers.get("Content-Type", "")
-
-            if req_content_type and (
-                req_content_type.startswith((
-                    "multipart/form-data",
-                    "application/x-www-form-urlencoded",
-                ))
-            ):
+            request_data: dict[str, Any]
+            if req_content_type.startswith((
+                "multipart/form-data",
+                "application/x-www-form-urlencoded",
+            )):
                 form_data = await request.form()
-                oper_param = "\n".join([f"{k}: {v}" for k, v in form_data.items()])
-                payload = oper_param  # 直接使用字符串格式的参数
+                request_data = {"body": dict(form_data)}
             else:
-                payload = await request.body()
-                path_params = request.path_params
-                oper_param = {}
+                raw = await request.body()
+                try:
+                    request_data = {"body": json.loads(raw)} if raw else {}
+                except ValueError, UnicodeDecodeError:
+                    request_data = {"body": "[REDACTED]"}
+            request_data["path_params"] = dict(request.path_params)
+            payload = json.dumps(sanitize_log_data(request_data), ensure_ascii=False)
+            if len(payload) > 2000:
+                payload = "请求参数过长"
 
-                # 处理请求体数据
-                if payload:
-                    try:
-                        oper_param["body"] = json.loads(payload.decode())
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        oper_param["body"] = payload.decode("utf-8", errors="ignore")
-
-                # 处理路径参数
-                if path_params:
-                    oper_param["path_params"] = dict(path_params)
-
-                payload = json.dumps(oper_param, ensure_ascii=False)
-
-                # 日志表请求参数字段长度最大为2000，因此在此处判断长度
-                if len(payload) > 2000:
-                    payload = "请求参数过长"
-
-            response_data = (
-                response.body
-                if "application/json" in response.headers.get("Content-Type", "")
-                else b"{}"
-            )
-            response_data_str = (
-                response_data.decode()
-                if isinstance(response_data, (bytes, bytearray))
-                else str(response_data)
-            )
+            response_data_str = "{}"
+            if "application/json" in response.headers.get("Content-Type", ""):
+                try:
+                    response_json = json.loads(getattr(response, "body", b"{}"))
+                    response_data_str = json.dumps(
+                        sanitize_log_data(response_json), ensure_ascii=False
+                    )
+                except ValueError, TypeError, UnicodeDecodeError:
+                    response_data_str = "[REDACTED]"
             process_time = f"{(time.time() - start_time):.2f}s"
 
             # 获取当前用户ID,如果是登录接口则为空
@@ -176,53 +196,42 @@ class OperationLogRoute(APIRoute):
             # （原同步外查阻塞响应路径最长 3s，现关键路径零外网请求）。
             login_location = request.scope.get("login_location")
             if login_location is None:
-                login_location = await IpLocalUtil.resolve_location_for_log(
-                    login_redis, request_ip
-                )
+                login_location = await IpLocalUtil.resolve_location_for_log(login_redis, request_ip)
 
-            # 判断请求是否来自api文档
-            referer = request.headers.get("referer")
-            request_from_swagger = referer and referer.endswith("docs")
-            request_from_redoc = referer and referer.endswith("redoc")
-
-            if request_from_swagger or request_from_redoc:
-                # 如果请求来自api文档，则不记录日志
-                pass
+            # SM2 日志签名（国密完整性保护，可用 OPERATION_LOG_SIGN_ENABLE 关闭）
+            sign_data = f"{payload}|{response_data_str}|{process_time}"
+            signature, signed_fields = build_operation_log_signature(sign_data)
+            # 日志落库走内核槽位：内核只收集 OperationLogEntry，存储实现由插件提供。
+            sink = get(SLOT_LOG_OPERATION_SINK)
+            if sink is None:
+                # 槽位缺失＝提供方插件未安装（最小部署可缺）：降级为「仅写文件日志」，
+                # 不在热路径记告警（启动期由 lifespan 统一告警）。
+                log.info(f"操作日志: {request.method} {request.url.path} {response.status_code}")
             else:
-                # SM2 日志签名（国密完整性保护，可用 OPERATION_LOG_SIGN_ENABLE 关闭）
-                sign_data = f"{payload}|{response_data_str}|{process_time}"
-                signature, signed_fields = build_operation_log_signature(sign_data)
-                # 日志落库走内核槽位：内核只收集 OperationLogEntry，存储实现由插件提供。
-                sink = get(SLOT_LOG_OPERATION_SINK)
-                if sink is None:
-                    # 槽位缺失＝提供方插件未安装（最小部署可缺）：降级为「仅写文件日志」，
-                    # 不在热路径记告警（启动期由 lifespan 统一告警）。
-                    log.info(f"操作日志: {request.method} {request.url.path} {response.status_code}")
-                else:
-                    entry = OperationLogEntry(
-                        type=log_type,
-                        request_path=request.url.path,
-                        request_method=request.method,
-                        request_payload=payload,
-                        request_ip=request_ip,
-                        login_location=login_location,
-                        request_os=user_agent.os.family,
-                        request_browser=user_agent.browser.family,
-                        response_code=response.status_code,
-                        response_json=response_data_str,
-                        process_time=process_time,
-                        signature=signature,
-                        signed_fields=signed_fields,
-                        description=route.summary,
-                        created_id=current_user_id,
-                        updated_id=current_user_id,
-                        username=username,
-                        mobile=mobile,
-                        login_platform=login_platform,
-                    )
-                    async with async_db_session() as session:
-                        async with session.begin():
-                            await sink.write(entry, session, login_redis)
+                entry = OperationLogEntry(
+                    type=log_type,
+                    request_path=request.url.path,
+                    request_method=request.method,
+                    request_payload=payload,
+                    request_ip=request_ip,
+                    login_location=login_location,
+                    request_os=user_agent.os.family,
+                    request_browser=user_agent.browser.family,
+                    response_code=response.status_code,
+                    response_json=response_data_str,
+                    process_time=process_time,
+                    signature=signature,
+                    signed_fields=signed_fields,
+                    description=route.summary,
+                    created_id=current_user_id,
+                    updated_id=current_user_id,
+                    username=username,
+                    mobile=mobile,
+                    login_platform=login_platform,
+                )
+                async with async_db_session() as session:
+                    async with session.begin():
+                        await sink.write(entry, session, login_redis)
 
             return response
 

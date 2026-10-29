@@ -104,7 +104,7 @@ def handle_exception(app: FastAPI) -> None:
         - JSONResponse: 包含错误信息的 JSON 响应。
         """
         log.error(
-            f"[自定义异常] {request.method} {request.url.path} | 错误码: {exc.code} | 错误信息: {exc.msg} | 详情: {exc.data}"
+            f"[自定义异常] {request.method} {request.url.path} | 错误码: {exc.code} | 状态码: {exc.status_code}"
         )
         return ErrorResponse(
             msg=exc.msg,
@@ -126,7 +126,7 @@ def handle_exception(app: FastAPI) -> None:
         - JSONResponse: 包含错误信息的 JSON 响应。
         """
         log.error(
-            f"[HTTP异常] {request.method} {request.url.path} | 状态码: {exc.status_code} | 错误信息: {exc.detail}"
+            f"[HTTP异常] {request.method} {request.url.path} | 状态码: {exc.status_code}"
         )
         return ErrorResponse(msg=exc.detail, status_code=exc.status_code)
 
@@ -161,12 +161,11 @@ def handle_exception(app: FastAPI) -> None:
                 else msg.replace("Value error", "").strip()
             )
         log.error(
-            f"[参数验证异常] {request.method} {request.url.path} | 错误信息: {msg} | 原始错误: {exc.errors()}"
+            f"[参数验证异常] {request.method} {request.url.path} | 错误数量: {len(exc.errors())}"
         )
         return ErrorResponse(
             msg=str(msg),
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            data=exc.body,
         )
 
     @app.exception_handler(ResponseValidationError)
@@ -184,12 +183,11 @@ def handle_exception(app: FastAPI) -> None:
         - JSONResponse: 包含错误信息的 JSON 响应。
         """
         log.error(
-            f"[响应验证异常] {request.method} {request.url.path} | 错误信息: 响应数据格式错误 | 详情: {exc.errors()}"
+            f"[响应验证异常] {request.method} {request.url.path} | 错误数量: {len(exc.errors())}"
         )
         return ErrorResponse(
             msg="服务器响应格式错误",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            data=exc.body,
         )
 
     @app.exception_handler(SQLAlchemyError)
@@ -209,12 +207,11 @@ def handle_exception(app: FastAPI) -> None:
 
         # 对于生产环境，返回通用错误消息
         log.error(
-            f"[数据库异常] {request.method} {request.url.path} | 错误类型: {exc_type} | 错误详情: {exc!s}"
+            f"[数据库异常] {request.method} {request.url.path} | 错误类型: {exc_type}"
         )
         return ErrorResponse(
             msg=f"{error_msg}: {exc_type}",
             status_code=status.HTTP_400_BAD_REQUEST,
-            data=str(exc),
         )
 
     @app.exception_handler(ValueError)
@@ -229,7 +226,7 @@ def handle_exception(app: FastAPI) -> None:
         返回:
         - JSONResponse: 包含错误信息的 JSON 响应。
         """
-        log.error(f"[值异常] {request.method} {request.url.path} | 错误信息: {exc!s}")
+        log.error(f"[值异常] {request.method} {request.url.path}")
         return ErrorResponse(msg=str(exc), status_code=status.HTTP_400_BAD_REQUEST)
 
     @app.exception_handler(FieldValidationError)
@@ -246,7 +243,7 @@ def handle_exception(app: FastAPI) -> None:
         返回:
         - JSONResponse: 包含错误信息的 JSON 响应。
         """
-        log.error(f"[字段验证异常] {request.method} {request.url.path} | 错误信息: {exc.message}")
+        log.error(f"[字段验证异常] {request.method} {request.url.path}")
         return ErrorResponse(msg=exc.message, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     @app.exception_handler(Exception)
@@ -263,7 +260,7 @@ def handle_exception(app: FastAPI) -> None:
         """
         exc_type = type(exc).__name__
         log.error(
-            f"[未捕获异常] {request.method} {request.url.path} | 错误类型: {exc_type} | 错误详情: {exc!s}"
+            f"[未捕获异常] {request.method} {request.url.path} | 错误类型: {exc_type}"
         )
         # 对于未捕获的异常，返回通用错误信息
         return ErrorResponse(

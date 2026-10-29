@@ -114,13 +114,13 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       REDIS_PORT: "6379"
       # 是否启用验证码（生产环境建议启用，开发环境可禁用以简化登录流程）
-      CAPTCHA_ENABLE: "false"
+      CAPTCHA_ENABLE: "true"
     # 应用配置以环境变量注入（优先级：environment > env_file > 代码默认值）
     # 文件缺失时 compose 直接报错退出，不会静默使用默认值
     env_file:
       - ../backend/env/.env.prod
     ports:
-      - "${BACKEND_PORT:-6100}:6100"
+      - "127.0.0.1:${BACKEND_PORT:-6100}:6100"
     # 源码不再挂载（镜像已自包含）；热更新请叠加 docker-compose.dev.yaml
     depends_on:
       mysql:

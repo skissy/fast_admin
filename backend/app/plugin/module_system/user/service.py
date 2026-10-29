@@ -6,6 +6,8 @@ from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config.setting import settings
+from app.core.auth.permission import AuthPermission
 from app.core.auth.schema import AuthSchema
 from app.core.base_schema import BatchSetAvailable, UploadResponseSchema
 from app.core.exceptions import CustomException
@@ -401,7 +403,7 @@ class UserService:
         返回:
         - Dict: 上传头像响应字典
         """
-        filename, filepath, file_url = await UploadUtil.upload_file(file=file, base_url=base_url)
+        filename, filepath, file_url = await UploadUtil.upload_avatar(file=file, base_url=base_url)
 
         return UploadResponseSchema(
             file_path=f"{filepath}",
@@ -457,6 +459,10 @@ class UserService:
         返回:
         - Dict: 更新后的当前用户详情字典
         """
+        if not auth.user:
+            raise CustomException(msg="请先登录", code=10401, status_code=401)
+        # 服务层同样强制权限及数据范围，避免内部调用绕过控制器依赖。
+        auth = await AuthPermission(["module_system:user:reset"])(auth)
         if not data.password:
             raise CustomException(msg="密码不能为空")
 
@@ -477,13 +483,16 @@ class UserService:
         return UserOutSchema.model_validate(new_user).model_dump()
 
     @classmethod
-    async def register_user_service(cls, auth: AuthSchema, data: UserRegisterSchema) -> dict:
+    async def register_user_service(
+        cls, auth: AuthSchema, data: UserRegisterSchema, *, role_ids: list[int] | None = None
+    ) -> dict:
         """
         用户注册
 
         参数:
         - auth (AuthSchema): 认证信息模型
         - data (UserRegisterSchema): 用户注册数据
+        - role_ids (list[int] | None): 仅内部第三方登录可传入的服务端角色配置。
 
         返回:
         - Dict: 注册后的用户详情字典
@@ -495,15 +504,21 @@ class UserService:
 
         data.password = PwdUtil.set_password_hash(password=data.password)
         data.name = data.username
-        create_dict = data.model_dump(exclude_unset=True, exclude={"role_ids", "position_ids"})
+        create_dict = data.model_dump(
+            include={"username", "password", "name", "mobile", "description"}
+        )
+        create_dict["is_superuser"] = False
 
         # 设置创建人ID
         if auth.user and auth.user.id:
             create_dict["created_id"] = auth.user.id
 
         result = await UserCRUD(auth).create(data=create_dict)
-        if data.role_ids:
-            await UserCRUD(auth).set_user_roles_crud(user_ids=[result.id], role_ids=data.role_ids)
+        registration_roles = settings.REGISTER_DEFAULT_ROLE_IDS if role_ids is None else role_ids
+        if registration_roles:
+            await UserCRUD(auth).set_user_roles_crud(
+                user_ids=[result.id], role_ids=list(registration_roles)
+            )
         return UserOutSchema.model_validate(result).model_dump()
 
     @classmethod
@@ -520,21 +535,8 @@ class UserService:
         返回:
         - Dict: 更新后的当前用户详情字典
         """
-        user = await UserCRUD(auth).get_by_username_crud(username=data.username)
-        if not user:
-            raise CustomException(msg="用户不存在")
-        if user.status == "1":
-            raise CustomException(msg="用户已停用")
-
-        # 检查是否是超级管理员
-        if user.is_superuser:
-            raise CustomException(msg="超级管理员密码不能重置")
-
-        new_password_hash = PwdUtil.set_password_hash(password=data.new_password)
-        new_user = await UserCRUD(auth).forget_password_crud(
-            id=user.id, password_hash=new_password_hash
-        )
-        return UserOutSchema.model_validate(new_user).model_dump()
+        # 尚无绑定账户的短时一次性验证机制，禁止仅凭公开信息重置密码。
+        raise CustomException(msg="自助找回密码暂未开放，请联系管理员", code=10403, status_code=403)
 
     @classmethod
     async def batch_import_user_service(
@@ -601,7 +603,9 @@ class UserService:
                 try:
                     count = count + 1
                     # 数据转换
-                    gender = "1" if row["gender"] == "男" else ("2" if row["gender"] == "女" else "1")
+                    gender = (
+                        "1" if row["gender"] == "男" else ("2" if row["gender"] == "女" else "1")
+                    )
                     status = "0" if row["status"] == "正常" else "1"
 
                     # 构建用户数据
@@ -641,7 +645,10 @@ class UserService:
                             await UserCRUD(auth).set_user_roles_crud(
                                 user_ids=[new_user.id], role_ids=user_create_schema.role_ids
                             )
-                        if user_create_schema.position_ids and len(user_create_schema.position_ids) > 0:
+                        if (
+                            user_create_schema.position_ids
+                            and len(user_create_schema.position_ids) > 0
+                        ):
                             await UserCRUD(auth).set_user_positions_crud(
                                 user_ids=[new_user.id], position_ids=user_create_schema.position_ids
                             )

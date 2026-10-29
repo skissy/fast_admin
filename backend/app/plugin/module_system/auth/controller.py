@@ -20,27 +20,29 @@ from app.core.security import CustomOAuth2PasswordRequestForm, OAuth2Schema
 
 from ..user.crud import UserCRUD
 from .oauth_service import (
+    OAUTH_BROWSER_COOKIE,
     STATE_PREFIX,
     OAuthProvider,
     _callback_url,
     build_authorize_url,
     complete_oauth_login,
+    exchange_oauth_code,
     oauth_service_error_redirect,
     oauth_service_frontend_redirect_from_token,
     save_oauth_state,
+    validate_frontend_redirect,
 )
 from .schema import (
-    AutoLoginTokenSchema,
-    AutoLoginUserSchema,
     CaptchaOutSchema,
     JWTOutSchema,
+    OAuthCodeSchema,
     RefreshTokenPayloadSchema,
     WxLoginSchema,
     WxPhoneLoginSchema,
     WxQrCodeOutSchema,
     WxQrCodeSchema,
 )
-from .service import AutoLoginService, CaptchaService, LoginService
+from .service import CaptchaService, LoginService
 from .wx_mini_service import (
     code2session,
     ensure_wx_phone_user,
@@ -180,9 +182,7 @@ async def wx_qrcode_generate_controller(
     异常:
     - CustomException: 未配置凭据 / 微信接口失败。
     """
-    image_bytes = await get_qrcode(
-        redis=redis, scene=body.scene, page=body.page, width=body.width
-    )
+    image_bytes = await get_qrcode(redis=redis, scene=body.scene, page=body.page, width=body.width)
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     return SuccessResponse(
         data=WxQrCodeOutSchema(url=f"data:image/png;base64,{b64}"), msg="生成成功"
@@ -350,85 +350,12 @@ async def logout_controller(
     return ErrorResponse(msg="退出失败")
 
 
-@AuthRouter.get(
-    "/auto-login/users",
-    summary="获取免登录用户列表",
-    description="获取可用于免登录快速登录的用户列表",
-    response_model=list[AutoLoginUserSchema],
-)
-async def get_auto_login_users_controller(
-    db: Annotated[AsyncSession, Depends(db_getter)],
-) -> JSONResponse:
-    """
-    获取免登录用户列表
-
-    参数:
-    - db (AsyncSession): 数据库会话对象
-
-    返回:
-    - list[AutoLoginUserSchema]: 免登录用户列表
-    """
-    users = await AutoLoginService.get_auto_login_users_service(db=db)
-    return SuccessResponse(data=users, msg="获取成功")
-
-
-@AuthRouter.post(
-    "/auto-login/token",
-    summary="获取免登录Token",
-    description="根据用户ID生成免登录Token",
-    response_model=AutoLoginTokenSchema,
-)
-async def get_auto_login_token_controller(
-    redis: Annotated[Redis, Depends(redis_getter)],
-    db: Annotated[AsyncSession, Depends(db_getter)],
-    user_id: int,
-) -> JSONResponse:
-    """
-    获取免登录Token
-
-    参数:
-    - redis (Redis): Redis客户端对象
-    - db (AsyncSession): 数据库会话对象
-    - user_id (int): 用户ID
-
-    返回:
-    - AutoLoginTokenSchema: 免登录Token和用户信息
-    """
-    result = await AutoLoginService.create_auto_login_token_service(
-        redis=redis, db=db, user_id=user_id
-    )
-    return SuccessResponse(data=result, msg="获取成功")
-
-
-@AuthRouter.post(
-    "/auto-login",
-    summary="免登录",
-    description="使用免登录Token快速登录",
-    response_model=JWTOutSchema,
-)
-async def auto_login_controller(
-    request: Request,
-    redis: Annotated[Redis, Depends(redis_getter)],
-    db: Annotated[AsyncSession, Depends(db_getter)],
-    token: str,
-) -> JSONResponse:
-    """
-    免登录
-
-    参数:
-    - request (Request): FastAPI请求对象
-    - redis (Redis): Redis客户端对象
-    - db (AsyncSession): 数据库会话对象
-    - token (str): 免登录Token
-
-    返回:
-    - JWTOutSchema: JWT令牌信息
-    """
-    login_token = await AutoLoginService.auto_login_service(
-        request=request, redis=redis, db=db, token=token
-    )
-    log.info("用户免登录成功")
-    return SuccessResponse(data=login_token.model_dump(), msg="登录成功")
+@AuthRouter.get("/auto-login/users", include_in_schema=False)
+@AuthRouter.post("/auto-login/token", include_in_schema=False)
+@AuthRouter.post("/auto-login", include_in_schema=False)
+async def disabled_auto_login_controller() -> JSONResponse:
+    """停用不安全的免登录链路，包括历史凭据兑换。"""
+    raise CustomException(msg="免登录功能已停用", code=10403, status_code=403)
 
 
 @AuthRouter.get(
@@ -446,7 +373,7 @@ async def oauth_login_redirect_controller(
     ] = None,
 ) -> RedirectResponse:
     allowed = {"wechat", "qq", "github", "gitee"}
-    fe = redirect_uri or settings.OAUTH_FRONTEND_FALLBACK
+    fe = validate_frontend_redirect(redirect_uri or settings.OAUTH_FRONTEND_FALLBACK)
     if provider not in allowed:
         return RedirectResponse(
             url=oauth_service_error_redirect(fe, "不支持的 OAuth 渠道"),
@@ -459,15 +386,27 @@ async def oauth_login_redirect_controller(
         )
     try:
         state = secrets.token_urlsafe(32)
+        browser_nonce = secrets.token_urlsafe(32)
         await save_oauth_state(
             redis=redis,
             state=state,
             provider=provider,
             frontend_redirect=redirect_uri,
+            browser_nonce=browser_nonce,
         )
         cb = _callback_url(request, provider)
         url = build_authorize_url(provider=provider, callback_url=cb, state=state)
-        return RedirectResponse(url=url, status_code=302)
+        response = RedirectResponse(url=url, status_code=302)
+        response.set_cookie(
+            OAUTH_BROWSER_COOKIE,
+            browser_nonce,
+            max_age=600,
+            httponly=True,
+            secure=settings.ENVIRONMENT == "prod" or request.url.scheme == "https",
+            samesite="lax",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
     except CustomException as e:
         return RedirectResponse(
             url=oauth_service_error_redirect(redirect_uri, e.msg),
@@ -488,7 +427,7 @@ async def oauth_callback_controller(
     code: Annotated[str | None, Query()] = None,
     state: Annotated[str | None, Query()] = None,
 ) -> RedirectResponse:
-    fe_fallback = settings.OAUTH_FRONTEND_FALLBACK
+    fe_fallback = validate_frontend_redirect(settings.OAUTH_FRONTEND_FALLBACK)
 
     async def resolve_frontend() -> str:
         if not state:
@@ -500,17 +439,15 @@ async def oauth_callback_controller(
             raw = raw.decode("utf-8")
         try:
             payload = json.loads(raw)
-            return str(payload.get("frontend_redirect") or fe_fallback).strip() or fe_fallback
-        except json.JSONDecodeError:
+            return validate_frontend_redirect(str(payload.get("frontend_redirect") or fe_fallback))
+        except json.JSONDecodeError, CustomException:
             return fe_fallback
 
     if provider not in {"wechat", "qq", "github", "gitee"}:
         url = oauth_service_error_redirect(await resolve_frontend(), "不支持的 OAuth 渠道")
         return RedirectResponse(url=url, status_code=302)
     if not code or not state:
-        url = oauth_service_error_redirect(
-            await resolve_frontend(), "授权被取消或参数不完整"
-        )
+        url = oauth_service_error_redirect(await resolve_frontend(), "授权被取消或参数不完整")
         return RedirectResponse(url=url, status_code=302)
     try:
         token, fe = await complete_oauth_login(
@@ -521,8 +458,30 @@ async def oauth_callback_controller(
             code=code,
             state=state,
         )
-        success_url = oauth_service_frontend_redirect_from_token(fe, token)
-        return RedirectResponse(url=success_url, status_code=302)
+        success_url = await oauth_service_frontend_redirect_from_token(
+            fe, token, redis=redis, browser_nonce=request.cookies.get(OAUTH_BROWSER_COOKIE, "")
+        )
+        return RedirectResponse(
+            url=success_url,
+            status_code=302,
+            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+        )
     except CustomException as e:
         fe = await resolve_frontend()
         return RedirectResponse(url=oauth_service_error_redirect(fe, e.msg), status_code=302)
+
+
+@AuthRouter.post("/oauth/code/exchange", summary="交换 OAuth 一次性授权码")
+async def oauth_code_exchange_controller(
+    request: Request,
+    data: OAuthCodeSchema,
+    redis: Annotated[Redis, Depends(redis_getter)],
+) -> JSONResponse:
+    """使用绑定浏览器的一次性凭据获取会话令牌。"""
+    token = await exchange_oauth_code(
+        redis=redis, code=data.code, browser_nonce=request.cookies.get(OAUTH_BROWSER_COOKIE, "")
+    )
+    response = SuccessResponse(data=token.model_dump())
+    response.delete_cookie(OAUTH_BROWSER_COOKIE)
+    response.headers["Cache-Control"] = "no-store"
+    return response
